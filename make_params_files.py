@@ -74,17 +74,20 @@ bounds = {'mass_1_min':35.0, 'mass_1_max':80.0,
         '__definition__luminosity_distance': 'luminosity distance range'}
 
 # arbitrary value for normalization of timeseries (Don't change this)
-y_normscale = 17.390323953154567
+y_normscale = 36.0
 
 ##########################
 # Main tunable variables
 ##########################
-ndata = 1024                                                                     
+ndata = 256                                                                     
 det=['H1','L1','V1']                                                            
 psd_files=[] 
+#rand_pars = ['mass_1','mass_2','luminosity_distance','geocent_time','phase',
+#                 'theta_jn','psi','a_1','a_2','tilt_1','tilt_2','phi_12','phi_jl','ra','dec']                                   
+#inf_pars=['mass_1','mass_2','luminosity_distance','geocent_time','theta_jn','a_1','a_2','tilt_1','tilt_2','phi_12','phi_jl','ra','dec'] 
 rand_pars = ['mass_1','mass_2','luminosity_distance','geocent_time','phase',
-                 'theta_jn','psi','a_1','a_2','tilt_1','tilt_2','phi_12','phi_jl','ra','dec']                                   
-inf_pars=['mass_1','mass_2','luminosity_distance','geocent_time','theta_jn','a_1','a_2','tilt_1','tilt_2','phi_12','phi_jl','ra','dec'] 
+                 'theta_jn','psi','ra','dec']
+inf_pars=['mass_1','mass_2','luminosity_distance','geocent_time','theta_jn','ra','dec']
 batch_size = 512                                                                 
 weight_init = 'xavier'                                                            
 n_modes=16                                                                      
@@ -121,29 +124,35 @@ n_weights_q = [n_fc,n_fc]
 #############################
 # optional tunable variables
 #############################
-run_label = '1kHz_fullpar_run1'#'demo_%ddet_%dpar_%dHz_hour_angle_with_late_kl_start' % (len(det),len(rand_pars),ndata) 
+run_label = 'public_model'#'demo_%ddet_%dpar_%dHz_hour_angle_with_late_kl_start' % (len(det),len(rand_pars),ndata) 
 
 # 1024 Hz label
 #bilby_results_label = 'weichangfeng_theta_jn_issue'                                             
 # 256 Hz label
-bilby_results_label = '1024Hz_full_15par'
+bilby_results_label = 'all_4_samplers'
 
-r = 4                                                          
+r = 1                                                          
 pe_test_num = 256                                                               
 tot_dataset_size = int(1e7)                                                     
 tset_split = int(1e3)                                                           
 save_interval = int(2e4)                                                        
 num_iterations=int(1e6)+1                                                       
 ref_geocent_time=1126259642.5                                                   
-load_chunk_size = 2e3                                                           
+load_chunk_size = 2e5                                                           
 samplers=['vitamin','dynesty']                                                  
 
 # Directory variables
 plot_dir="./results/%s" % run_label  
 
-train_set_dir='/home/hunter.gabbard/CBC/public_VItamin/provided_models/vitamin_b/vitamin_b/training_sets_%ddet_%dpar_%dHz/tset_tot-%d_split-%d_O4PSDH1L1_AdvVirgoPSD' % (len(det),len(rand_pars),ndata,tot_dataset_size,tset_split)
-test_set_dir = '/home/hunter.gabbard/CBC/public_VItamin/provided_models/vitamin_b/vitamin_b/test_sets/1024_khz_spins_included_15par/test_waveforms'
-pe_dir='/home/hunter.gabbard/CBC/public_VItamin/provided_models/vitamin_b/vitamin_b/test_sets/1024_khz_spins_included_15par/test'
+# Training/testing for 1024 Hz full par case
+train_set_dir='./training_sets_%ddet_%dpar_%dHz/tset_tot-%d_split-%d' % (len(det),len(rand_pars),ndata,1000000,tset_split)
+#test_set_dir = './test_sets/1024_khz_spins_included_15par/test_waveforms'
+#pe_dir='./test_sets/1024_khz_spins_included_15par/test'
+
+# training/testing for 256 Hz case
+#train_set_dir = '/home/hunter.gabbard/CBC/VItamin/training_sets_second_sub_3det_9par_256Hz/tset_tot-10000000_split-1000/'
+test_set_dir = './test_sets/all_4_samplers/test_waveforms'
+pe_dir='./test_sets/all_4_samplers/test'
 #############################
 # optional tunable variables
 
@@ -152,14 +161,13 @@ def get_params():
 
     # Define dictionary to store values used in rest of code 
     params = dict(
-        
         hour_angle_range=[-3.813467684252483,2.469671758574231],
         __definition__hour_angle_range='min and max range of hour angle space',
         use_real_det_noise=False,
         __definition__use_real_det_noise='If True, use real detector noise around reference time',
         use_real_events=[], # e.g. 'GW150914'
         __definition__use_real_events='list containing real ligo events to be analyzed',
-        convert_to_hour_angle = False,
+        convert_to_hour_angle = True,
         __definition__convert_to_hour_angle='If True, convert RA to hour angle during trianing and testing',
         make_corner_plots = True,                                               
         __definition__make_corner_plots='if True, make corner plots',
@@ -188,7 +196,7 @@ def get_params():
         __definition__load_plot_data='Use plotting data which has already been generated',
         doPE = True,                                                            
         __definition__doPE='if True then do bilby PE when generating new testing samples',
-        gpu_num=3,                                                              
+        gpu_num=5,                                                              
         __definition__gpu_num='gpu number run is running on',
         ndata = ndata,                                                          
         __definition__ndata='sampling frequency',
