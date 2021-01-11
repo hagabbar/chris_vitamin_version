@@ -87,7 +87,7 @@ def convert_hour_angle_to_ra(data, params, rand_pars=False, single=False):
 
     # compute single instance
     if single:
-        return (t - data)
+        return np.remainder(t - data,2.0*np.pi)
 
     # get ra index
     if rand_pars == True:
@@ -107,8 +107,7 @@ def convert_hour_angle_to_ra(data, params, rand_pars=False, single=False):
     else:
         # Iterate over all training samples and convert to hour angle
         for i in range(data.shape[0]):
-            #data[i,ra_idx] = np.remainder(t - data[i,ra_idx],2.0*np.pi)
-            data[i,ra_idx] = (t - data[i,ra_idx])
+            data[i,ra_idx] = np.remainder(t - data[i,ra_idx],2.0*np.pi)
 
     return data
 

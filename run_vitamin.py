@@ -47,13 +47,13 @@ try:
     from .gen_benchmark_pe import run
     from . import plotting
     from .plotting import prune_samples
-    from .models.neural_networks.vae_utils import convert_ra_to_hour_angle, convert_hour_angle_to_ra
+    from .models.neural_networks.vae_utils import convert_ra_to_hour_angle
 except (ModuleNotFoundError, ImportError):
     from models import CVAE_model
     from gen_benchmark_pe import run
     import plotting
     from plotting import prune_samples
-    from models.neural_networks.vae_utils import convert_ra_to_hour_angle, convert_hour_angle_to_ra
+    from models.neural_networks.vae_utils import convert_ra_to_hour_angle
 
 # Check for optional basemap installation
 try:
@@ -233,10 +233,7 @@ def load_data(params,bounds,fixed_vals,input_dir,inf_pars,test_data=False):
         data={'x_data': [], 'y_data_noisefree': [], 'y_data_noisy': [], 'rand_pars': []}
     
     # Sort files from first generated to last generated
-    if test_data:
-        filenames = sorted(os.listdir(dataLocations[0]), key=lambda x: int(x.split('.')[0].split('_')[-1]))
-    else:
-        filenames = sorted(os.listdir(dataLocations[0]))
+    filenames = sorted(os.listdir(dataLocations[0]))
 
     # Append training/testing filenames to list. Ignore those that can't be loaded
     snrs = []
@@ -593,6 +590,11 @@ def train(params=params,bounds=bounds,fixed_vals=fixed_vals,resume_training=Fals
     with open(fixed_vals, 'r') as fp:
         fixed_vals = json.load(fp)
 
+    # if doing hour angle, use hour angle bounds on RA
+    bounds['ra_min'] = convert_ra_to_hour_angle(bounds['ra_min'],params,single=True)
+    bounds['ra_max'] = convert_ra_to_hour_angle(bounds['ra_max'],params,single=True)
+    print('... converted RA bounds to hour angle')
+
     # define which gpu to use during training
     gpu_num = str(params['gpu_num'])                                            # first GPU used by default
     os.environ["CUDA_VISIBLE_DEVICES"]=gpu_num
@@ -646,7 +648,7 @@ def train(params=params,bounds=bounds,fixed_vals=fixed_vals,resume_training=Fals
     # load up the posterior samples (if they exist)
     if params['pe_dir'] != None:
         # load generated samples back in
-        dataLocations = '%s_%s1' % (params['pe_dir'],params['samplers'][1])
+        dataLocations = '%s_%s' % (params['pe_dir'],params['samplers'][1])
         print('... looking in {} for posterior samples'.format(dataLocations))
 
         i_idx = 0
@@ -769,6 +771,11 @@ def test(params=params,bounds=bounds,fixed_vals=fixed_vals,use_gpu=False):
     with open(fixed_vals, 'r') as fp:
         fixed_vals = json.load(fp)
 
+    # if doing hour angle, use hour angle bounds on RA
+    if params['convert_to_hour_angle']:
+        bounds['ra_min'] = params['hour_angle_range'][0]
+        bounds['ra_max'] = params['hour_angle_range'][1]
+
     if use_gpu == True:
         print("... GPU found")
         os.environ["CUDA_VISIBLE_DEVICES"]=str(params['gpu_num'])
@@ -783,96 +790,177 @@ def test(params=params,bounds=bounds,fixed_vals=fixed_vals,use_gpu=False):
 
     y_normscale = params['y_normscale']
 
-    # load the noisy testing data back in
-    x_data_test, y_data_test_noisefree, y_data_test, snrs_test = load_data(params,bounds,fixed_vals,params['test_set_dir'],params['inf_pars'],test_data=True)
-    print('... loaded in the testing data')
-
-#    for x in x_data_test:
-#        print(x)
+    # load the testing data time series and source parameter truths
+    x_data_test, y_data_test_noisefree, y_data_test,_,snrs_test,imp_info = load_data(params,bounds,fixed_vals,params['test_set_dir'],params['inf_pars'],load_condor=False)
 
     # Make directory to store plots
     os.system('mkdir -p %s/latest_%s' % (params['plot_dir'],params['run_label']))
 
+    # reshape arrays for single channel network (this will be overwritten if channels last is requested by user)
     y_data_test = y_data_test.reshape(y_data_test.shape[0],y_data_test.shape[1]*y_data_test.shape[2])
     y_data_test_noisefree = y_data_test_noisefree.reshape(y_data_test_noisefree.shape[0],y_data_test_noisefree.shape[1]*y_data_test_noisefree.shape[2])
-    print('... reshaped train,val,test y-data -> (N_samples,fs*duration*n_detectors)')
 
     # Make directory for plots
     os.system('mkdir -p %s/latest_%s' % (params['plot_dir'],params['run_label']))
 
-    # Iterate over samplers
-    samp_posteriors = {}
     # load up the posterior samples (if they exist)
-    if params['pe_dir'] != None:
-        for sampler in params['samplers'][1:]:
+    # load generated samples back in
+    post_files = []
+    #~/bilby_outputs/bilby_output_dynesty1/multi-modal3_0.h5py
 
-	    # load generated samples back in
-            dataLocations = '%s_%s1' % (params['pe_dir'],sampler)
-            print('... looking in {} for posterior samples'.format(dataLocations))            
+    # Identify directory with lowest number of total finished posteriors
+    num_finished_post = int(1e8)
+    for i in params['samplers']:
+        if i == 'vitamin':# or i == 'emcee':
+            continue
+
+        # remove any remaining resume files
+        resume_files=glob.glob('%s_%s1/*.resume*' % (params['pe_dir'],i))
+        filelist = [resume_files]
+        for file_idx,file_type in enumerate(filelist):
+            for file in file_type:
+                os.remove(file)
+
+        for j in range(1):
+            input_dir = '%s_%s%d/' % (params['pe_dir'],i,j+1)
+            if type("%s" % input_dir) is str:
+                dataLocations = ["%s" % input_dir]
+
+            filenames = sorted(os.listdir(dataLocations[0]), key=lambda x: int(x.split('.')[0].split('_')[-1]))
+            if len(filenames) < num_finished_post:
+                sampler_loc = i + str(j+1)
+                num_finished_post = len(filenames)
+
+
+    # Assert user has the minimum number of test samples generated
+    number_of_files_in_dir = len(os.listdir(dataLocations[0]))
+    try:
+        assert number_of_files_in_dir >= params['r']
+    except Exception as e:
+        print(e)
+        print('You are requesting to use more GW time series than you have made.')
+        exit()
+
+    samp_posteriors = {}
+    # Iterate over all Bayesian PE samplers
+    for samp_idx in params['samplers'][1:]:
+        dataLocations_try = '%s_%s' % (params['pe_dir'],sampler_loc)
+        dataLocations = '%s_%s' % (params['pe_dir'],samp_idx+'1')
+        i_idx = 0
+        i = 0
+        i_idx_use = []
+        x_data_test_unnorm = np.copy(x_data_test)
+
+
+        # Iterate over all requested testing samples
+        while i_idx < params['r']:
+
+            filename = '%s/%s_%d.h5py' % (dataLocations,params['bilby_results_label'],i)
+
+            for samp_idx_inner in params['samplers'][1:]:
+                inner_file_existance = True
+                if samp_idx_inner == samp_idx:
+                    inner_file_existance = os.path.isfile(filename)
+                    if inner_file_existance == False:
+                        break
+                    else:
+                        continue
+
+                dataLocations_inner = '%s_%s' % (params['pe_dir'],samp_idx_inner+'1')
+                filename_inner = '%s/%s_%d.h5py' % (dataLocations_inner,params['bilby_results_label'],i)
+                # If file does not exist, skip to next file
+                inner_file_existance = os.path.isfile(filename_inner)                
+                if inner_file_existance == False:
+                    break
+
+            if inner_file_existance == False:
+                i+=1
+#                print('File does not exist for one of the samplers')
+                continue
+
+            print('... Loading test sample file -> ' + filename)
+            post_files.append(filename)
             
-            i_idx = 0
-            i = 0
-            # Iterate over requested number of testing samples to use
-            for i in range(params['r']):
-                filename = '%s/%s_%d.h5py' % (dataLocations,params['bilby_results_label'],i)
-                if not os.path.isfile(filename):
-                    print('... unable to find file {}. Exiting.'.format(filename))
-                    exit(0)
+            # Prune emcee samples for bad likelihood chains
+            if samp_idx == 'emcee':
+                emcee_pruned_samples = prune_samples(filename,params)
 
-                print('... Loading test sample -> ' + filename)
-                data_temp = {}
-                n = 0
+            data_temp = {}
+            n = 0
+            for q_idx,q in enumerate(params['inf_pars']):
+                 p = q + '_post'
+                 par_min = q + '_min'
+                 par_max = q + '_max'
+                 if p == 'psi_post':
+                     data_temp[p] = np.remainder(data_temp[p],np.pi)
 
-                # Retrieve all source parameters to do inference on
-                for q in params['inf_pars']:
-                     p = q + '_post'
-                     par_min = q + '_min'
-                     par_max = q + '_max'
-                     data_temp[p] = h5py.File(filename, 'r')[p][:]
-                     if p == 'psi_post':
-                         data_temp[p] = np.remainder(data_temp[p],np.pi)
-                     if p == 'geocent_time_post':
-                         data_temp[p] = data_temp[p] - params['ref_geocent_time']
-#                     data_temp[p] = (data_temp[p] - bounds[par_min]) / (bounds[par_max] - bounds[par_min])
-                     Nsamp = data_temp[p].shape[0]
-                     n = n + 1
-                print('... read in {} samples from {}'.format(Nsamp,filename))
+                 if samp_idx == 'emcee':
+                     data_temp[p] = emcee_pruned_samples[:,q_idx]
+                 else:
+                     data_temp[p] = np.float64(h5py.File(filename, 'r')[p][:])
 
-                # place retrieved source parameters in numpy array rather than dictionary
-                j = 0
-                XS = np.zeros((Nsamp,n))
-                for p,d in data_temp.items():
-                    XS[:,j] = d
-                    j += 1
-                print('... put the samples in an array')
+                 if p == 'geocent_time_post' or p == 'geocent_time_post_with_cut':
+                     data_temp[p] = np.subtract(np.float64(data_temp[p]),np.float64(params['ref_geocent_time'])) 
 
-                # Append test sample posteriors to existing array of other test sample posteriors
-                rand_idx_posterior = np.random.randint(0,Nsamp,params['n_samples'])
-                if i == 0:
-                    XS_all = np.expand_dims(XS[rand_idx_posterior,:], axis=0)
-                else:
+                 Nsamp = data_temp[p].shape[0]
+                 n = n + 1
+
+            XS = np.zeros((Nsamp,n))
+            j = 0
+
+            # store posteriors in numpy array rather than dictionary
+            for p,d in data_temp.items():
+                XS[:,j] = d
+                j += 1
+
+            rand_idx_posterior = np.linspace(0,XS.shape[0]-1,num=params['n_samples'],dtype=np.int)
+            np.random.shuffle(rand_idx_posterior)
+            rand_idx_posterior = rand_idx_posterior[:params['n_samples']]
+            # Append test sample posterior to existing array of test sample posteriors
+            if i_idx == 0:
+                XS_all = np.expand_dims(XS[rand_idx_posterior,:], axis=0)
+                #XS_all = np.expand_dims(XS[:params['n_samples'],:], axis=0)
+            else:
+                try:
                     XS_all = np.vstack((XS_all,np.expand_dims(XS[rand_idx_posterior,:], axis=0)))
-                print('... appended {} samples to the total'.format(params['n_samples']))
-            samp_posteriors[sampler+'1'] = XS_all
+                    #XS_all = np.vstack((XS_all,np.expand_dims(XS[:params['n_samples'],:], axis=0)))
+                except ValueError as error: # If not enough posterior samples, exit with ValueError
+                    print('Not enough samples from the posterior generated')
+                    print(error)
+                    exit()
 
-    # Set posterior samples to None if posteriors don't exist
-    elif params['pe_dir'] == None:
-        XS_all = None
-        print('... not using pre-computed samples')
+            # Get unnormalized array with source parameter truths
+            for q_idx,q in enumerate(params['inf_pars']):
+                par_min = q + '_min'
+                par_max = q + '_max'
 
-    # reshape y data into channels last format for convolutional approach (if requested)
+                x_data_test_unnorm[i_idx,q_idx] = (x_data_test_unnorm[i_idx,q_idx] * (bounds[par_max] - bounds[par_min])) + bounds[par_min]
+
+            # Add to index in order to progress through while loop iterating over testing samples
+            i_idx_use.append(i_idx)
+            i+=1
+            i_idx+=1
+
+        # Add all testing samples for current Bayesian PE sampler to dictionary of all other Bayesian PE sampler test samples
+        samp_posteriors[samp_idx+'1'] = XS_all
+
+    # reshape y data into channels last format for convolutional approach
+    y_data_test_copy = np.zeros((y_data_test.shape[0],params['ndata'],len(params['det'])))
     if params['n_filters_r1'] != None:
-        y_data_test_copy = np.zeros((y_data_test.shape[0],params['ndata'],len(params['det'])))
-        y_data_test_noisefree_copy = np.zeros((y_data_test_noisefree.shape[0],params['ndata'],len(params['det'])))
         for i in range(y_data_test.shape[0]):
             for j in range(len(params['det'])):
                 idx_range = np.linspace(int(j*params['ndata']),int((j+1)*params['ndata'])-1,num=params['ndata'],dtype=int)
                 y_data_test_copy[i,:,j] = y_data_test[i,idx_range]
-                y_data_test_noisefree_copy[i,:,j] = y_data_test_noisefree[i,idx_range]
         y_data_test = y_data_test_copy
-        y_data_noisefree_test = y_data_test_noisefree_copy
+    
 
-        print('... converted the data into channels-last format')
+    # Reshape time series  array to right format for 1-channel configuration
+    if params['by_channel'] == False:
+        y_data_test_new = []
+        for sig in y_data_test:
+            y_data_test_new.append(sig.T)
+        y_data_test = np.array(y_data_test_new)
+        del y_data_test_new
 
     # check is basemap is installed
     if not skyplotting_usage:
@@ -885,14 +973,17 @@ def test(params=params,bounds=bounds,fixed_vals=fixed_vals,use_gpu=False):
         # If True, continue through and make corner plots
         if params['make_corner_plots'] == False:
             break
-       
-        # The trained inverse model weights can then be used to infer a probability density of solutions given new measurements
-        if params['n_filters_r1'] != None:
-            VI_pred, dt, _, _  = CVAE_model.run(params, y_data_test[i].reshape([1,y_data_test.shape[1],y_data_test.shape[2]]), np.shape(x_data_test)[1],"inverse_model_dir_%s/inverse_model.ckpt" % params['run_label'])
-        else:
-            VI_pred, dt, _, _  = CVAE_model.run(params, y_data_test[i].reshape([1,-1]), np.shape(x_data_test)[1],"inverse_model_dir_%s/inverse_model.ckpt" % params['run_label'])
-        print('...... Runtime to generate {} samples = {} sec'.format(params['n_samples'],dt))
- 
+        
+        # Generate ML posteriors using pre-trained model
+        if params['n_filters_r1'] != None: # for convolutional approach
+             VI_pred, dt, _  = CVAE_model.run(params, np.expand_dims(y_data_test[i],axis=0), np.shape(x_data_test)[1],
+                                                         y_normscale,
+                                                         "inverse_model_dir_%s/inverse_model.ckpt" % params['run_label'])
+        else:                                                          # for fully-connected approach
+            VI_pred, dt, _  = CVAE_model.run(params, y_data_test[i].reshape([1,-1]), np.shape(x_data_test)[1],
+                                                         y_normscale,
+                                                         "inverse_model_dir_%s/inverse_model.ckpt" % params['run_label'])
+
         # Make corner corner plots
         bins=50
        
@@ -922,12 +1013,17 @@ def test(params=params,bounds=bounds,fixed_vals=fixed_vals,use_gpu=False):
 
                 VI_pred[:,q_idx] = (VI_pred[:,q_idx] * (bounds[par_max] - bounds[par_min])) + bounds[par_min]
 
+        # Convert hour angle back to RA
+        VI_pred = convert_ra_to_hour_angle(VI_pred, params, rand_pars=False)
+
+        # Apply importance sampling if wanted by user
+        if args.importance_sampling:
+            VI_pred = importance_sampling(fixed_vals, params, VI_pred, imp_info['all_par'][i], imp_info['file_IDs'][i])
+
         # Get allowed range values for all posterior samples
         max_min_samplers = dict(max = np.zeros((len(params['samplers']),len(params['inf_pars']))),
                                 min = np.zeros((len(params['samplers']),len(params['inf_pars'])))
-
                                 )
-        """
         for samp_idx,samp in enumerate(params['samplers'][1:]):
             for par_idx in range(len(params['inf_pars'])):
                 max_min_samplers['max'][samp_idx+1,par_idx] = np.max(samp_posteriors[samp+'1'][i][:,par_idx])
@@ -936,15 +1032,10 @@ def test(params=params,bounds=bounds,fixed_vals=fixed_vals,use_gpu=False):
                     max_min_samplers['max'][0,par_idx] = np.min(VI_pred[:,par_idx])
                     max_min_samplers['min'][0,par_idx] = np.max(VI_pred[:,par_idx])
         corner_range = [ (np.min(max_min_samplers['min'][:,par_idx]), np.max(max_min_samplers['max'][:,par_idx]) ) for par_idx in range(len(params['inf_pars']))]
-        """
-        corner_range = None
 
         # Iterate over all Bayesian PE samplers and plot results
         custom_lines = []
-        x_data_test_unnorm = np.copy(x_data_test[i,:])
-        for inf_par_idx,inf_par in enumerate(params['inf_pars']):
-            x_data_test_unnorm[inf_par_idx] = (x_data_test_unnorm[inf_par_idx] * (bounds[inf_par+'_max'] - bounds[inf_par+'_min'])) + bounds[inf_par + '_min']
-        truths = x_data_test_unnorm
+        truths = x_data_test_unnorm[i,:]
         for samp_idx,samp in enumerate(params['samplers'][1:]):
 
             bilby_pred = samp_posteriors[samp+'1'][i]
@@ -1099,6 +1190,11 @@ def gen_samples(params=params,bounds=bounds,fixed_vals=fixed_vals,model_loc='mod
     with open(fixed_vals, 'r') as fp:
         fixed_vals = json.load(fp)
 
+    # if doing hour angle, use hour angle bounds on RA
+    if params['convert_to_hour_angle']:
+        bounds['ra_min'] = params['hour_angle_range'][0]
+        bounds['ra_max'] = params['hour_angle_range'][1]
+
     if use_gpu == True:
         print('GPU found')
         os.environ["CUDA_VISIBLE_DEVICES"]=str(params['gpu_num'])
@@ -1212,6 +1308,9 @@ def gen_samples(params=params,bounds=bounds,fixed_vals=fixed_vals,model_loc='mod
             par_min = q + '_min'
             par_max = q + '_max'
             samples[i,:,q_idx] = (samples[i,:,q_idx] * (bounds[par_max] - bounds[par_min])) + bounds[par_min]
+
+        # Convert hour angle back to RA
+        samples[i,:] = convert_ra_to_hour_angle(samples[i,:], params, rand_pars=False)
 
         # plot results
         if plot_corner==True:

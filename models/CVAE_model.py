@@ -20,13 +20,14 @@ from universal_divergence import estimate
 from .neural_networks import VI_decoder_r2
 from .neural_networks import VI_encoder_r1
 from .neural_networks import VI_encoder_q
+from .neural_networks import VI_rnn
 from .neural_networks import batch_manager
 try:
     from .. import gen_benchmark_pe
     from .neural_networks.vae_utils import convert_ra_to_hour_angle, convert_hour_angle_to_ra
 except Exception as e:
     import gen_benchmark_pe
-    from models.neural_networks.vae_utils import convert_ra_to_hour_angle, convert_hour_angle_to_ra
+    from models.neural_networks.vae_utils import convert_ra_to_hour_angle
 
 import matplotlib
 matplotlib.use('Agg')
@@ -96,6 +97,10 @@ def load_chunk(input_dir,inf_pars,params,bounds,fixed_vals,load_condor=False):
 
     data['x_data'] = np.concatenate(np.array(data['x_data']), axis=0).squeeze()
     data['y_data_noisefree'] = np.concatenate(np.array(data['y_data_noisefree']), axis=0)
+
+    if load_condor == False:
+        # convert ra to hour angle if needed
+        data['x_data'] = convert_ra_to_hour_angle(data['x_data'], params, rand_pars=True)
 
     # normalise the data parameters
     for i,k in enumerate(data_temp['rand_pars']):
@@ -489,6 +494,8 @@ def train(params, x_data, y_data, x_data_val, y_data_val, x_data_test, y_data_te
         q_zxy = VI_encoder_q.VariationalAutoencoder('VI_encoder_q', n_input1=xsh[1], n_input2=params['ndata'], n_output=z_dimension, 
                                                      n_channels=num_det, n_weights=n_weights_q, drate=drate, 
                                                      n_filters=n_filters_q, filter_size=filter_size_q, maxpool=maxpool_q, batch_norm = batch_norm) 
+        rnn = VI_rnn.VariationalAutoencoder('VI_rnn', n_input=params['ndata'], n_channels=num_det, n_filters=8, filter_size=9)
+
         tf.set_random_seed(np.random.randint(0,10))
 
         # reduce the y data size
@@ -667,16 +674,44 @@ def train(params, x_data, y_data, x_data_val, y_data_val, x_data_test, y_data_te
     val_indices_generator = batch_manager.SequentialIndexer(params['batch_size'], valsize)
     plotdata = []
 
+    # Convert right ascension to hour angle
     x_data_test_hour_angle = np.copy(x_data_test)
+    x_data_test_hour_angle = convert_ra_to_hour_angle(x_data_test_hour_angle, params)
 
     load_chunk_it = 1
     for i in range(params['num_iterations']):
+
+        # compute the ramp value
+        rmp = 0.0
+        if params['ramp'] == True:
+            ramp_epoch = np.log10(float(i))
+            #ramp_duration = (np.log10(ramp_end) - np.log10(ramp_start))/5.0
+            if i>ramp_start:
+                rmp = (ramp_epoch - np.log10(ramp_start))/(np.log10(ramp_end) - np.log10(ramp_start))
+                #rmp = np.remainder(ramp_epoch-np.log10(ramp_start),ramp_duration)/ramp_duration
+            if i>ramp_end:
+                rmp = 1.0
+        else:
+            rmp = 1.0
 
         next_indices = indices_generator.next_indices()
         # if load chunks true, load in data by chunks
         if params['load_by_chunks'] == True and i == int(params['load_iteration']*load_chunk_it):
             x_data, y_data = load_chunk(params['train_set_dir'],params['inf_pars'],params,bounds,fixed_vals)
             load_chunk_it += 1
+
+        # slowly bring in the other detector data
+        #rmp2 = 0.0
+        #rmp3 = 0.0
+        #if i>ramp_start:
+        #    rmp2 = (ramp_epoch - np.log10(ramp_start))/(np.log10(ramp_end/2.0) - np.log10(ramp_start))
+        #if i>ramp_end/2.0:
+        #    rmp2 = 1.0
+        #    rmp3 = (ramp_epoch - np.log10(ramp_end/2.0))/(np.log10(ramp_end) - np.log10(ramp_end/2.0))
+        #if i>ramp_end:
+        #    rmp3 = 1.0
+        #y_data[next_indices,:,1] *= rmp2
+        #y_data[next_indices,:,2] *= rmp3  
 
         # Make noise realizations and add to training data
         next_x_data = x_data[next_indices,:]
@@ -690,19 +725,6 @@ def train(params, x_data, y_data, x_data_val, y_data_val, x_data_test, y_data_te
         if params['resume_training'] == True and i == 0:
             print('... Loading previously trained model from -> ' + save_dir)
             saver.restore(session, save_dir)
-
-        # compute the ramp value
-        rmp = 0.0
-        if params['ramp'] == True:
-            #ramp_duration = (np.log10(ramp_end) - np.log10(ramp_start))/5.0
-            if i>ramp_start:
-                ramp_epoch = np.log10(float(i))
-                rmp = (ramp_epoch - np.log10(ramp_start))/(np.log10(ramp_end) - np.log10(ramp_start))
-                #rmp = np.remainder(ramp_epoch-np.log10(ramp_start),ramp_duration)/ramp_duration
-            if i>ramp_end:
-                rmp = 1.0  
-        else:
-            rmp = 1.0
 
         # set the lr decay to start after the ramp 
         edf = 1.0
@@ -779,6 +801,7 @@ def train(params, x_data, y_data, x_data_val, y_data_val, x_data_test, y_data_te
                 print('Learning rate:',lr)
                 #print('Weight ramp index:',wr)
                 #print('weight shape:',AB_batch.shape)
+                #print('ramps are {}, {}, {}'.format(rmp,rmp2,rmp3))
                 print()
               
                 # terminate training if vanishing gradient
@@ -818,6 +841,9 @@ def train(params, x_data, y_data, x_data_val, y_data_val, x_data_test, y_data_te
                     XS[:,inf_par_idx] = (XS[:,inf_par_idx] * (bounds[inf_par+'_max'] - bounds[inf_par+'_min'])) + bounds[inf_par+'_min']
                     true_post[:,inf_par_idx] = (true_post[:,inf_par_idx] * (bounds[inf_par+'_max'] - bounds[inf_par+'_min'])) + bounds[inf_par + '_min']
                     true_x[inf_par_idx] = (true_x[inf_par_idx] * (bounds[inf_par+'_max'] - bounds[inf_par+'_min'])) + bounds[inf_par + '_min']
+
+                # convert to RA
+                XS = convert_hour_angle_to_ra(XS,params)
 
                 # compute KL estimate
                 idx1 = np.random.randint(0,XS.shape[0],1000)
