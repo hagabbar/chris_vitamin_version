@@ -530,6 +530,7 @@ def train(params, x_data, y_data, x_data_val, y_data_val, x_data_test, y_data_te
         q_zxy = VI_encoder_q.VariationalAutoencoder('VI_encoder_q', n_input1=xsh[1], n_input2=params['ndata'], n_output=z_dimension, n_modes=n_modes_q,
                                                      n_channels=num_det, n_weights=n_weights_q, drate=drate, strides=conv_strides_q, dilations=conv_dilations_q,
                                                      n_filters=n_filters_q, filter_size=filter_size_q, maxpool=maxpool_q, batch_norm=batch_norm, twod_conv=twod_conv) 
+
         tf.set_random_seed(np.random.randint(0,10))
 
         # add noise to the data - MUST apply normscale to noise !!!!
@@ -714,6 +715,7 @@ def train(params, x_data, y_data, x_data_val, y_data_val, x_data_test, y_data_te
     x_data_test_hour_angle = np.copy(x_data_test)
     x_data_test_hour_angle = convert_ra_to_hour_angle(x_data_test_hour_angle, params, params['inf_pars'])
 
+
     time_check = 0.0
     load_chunk_it = 1
     for i in range(params['num_iterations']):
@@ -727,6 +729,7 @@ def train(params, x_data, y_data, x_data_val, y_data_val, x_data_test, y_data_te
                 #rmp = 0.0
                 rmp = (ramp_epoch - np.log10(ramp_start))/(np.log10(ramp_end) - np.log10(ramp_start))
                 #rmp = 1.0 - np.exp(-(float(i)-ramp_start)/ramp_end)*np.cos(2.0*np.pi*(float(i)-ramp_start)/ramp_end)
+
                 #rmp = np.remainder(ramp_epoch-np.log10(ramp_start),ramp_duration)/ramp_duration
             if i>ramp_end:
                 rmp = 1.0
@@ -753,6 +756,7 @@ def train(params, x_data, y_data, x_data_val, y_data_val, x_data_test, y_data_te
         else:
             srmp = 1.0
 
+
         next_indices = indices_generator.next_indices()
         # if load chunks true, load in data by chunks
         if params['load_by_chunks'] == True and i == int(params['load_iteration']*load_chunk_it):
@@ -760,6 +764,7 @@ def train(params, x_data, y_data, x_data_val, y_data_val, x_data_test, y_data_te
             load_chunk_it += 1
 
         # get next batch and normalise
+
         next_x_data = x_data[next_indices,:]
         next_y_data = y_data[next_indices,:]
         next_y_data /= y_normscale
@@ -835,6 +840,7 @@ def train(params, x_data, y_data, x_data_val, y_data_val, x_data_test, y_data_te
                 print('r1 weight ramp:',wrmp)
                 print('train-time:',time_check)
                 time_check = 0.0
+
                 print()
               
                 # terminate training if vanishing gradient
@@ -928,6 +934,9 @@ def train(params, x_data, y_data, x_data_val, y_data_val, x_data_test, y_data_te
                 full_true_x = convert_hour_angle_to_ra(np.reshape(full_true_x,[1,XS.shape[1]]),params,params['inf_pars']).flatten()
                 true_x = convert_hour_angle_to_ra(np.reshape(true_x,[1,true_XS.shape[1]]),params,ol_pars).flatten() 
                 print(true_x,true_x.shape)
+
+                # convert to RA
+                XS = convert_hour_angle_to_ra(XS,params)
 
                 # compute KL estimate
                 idx1 = np.random.randint(0,true_XS.shape[0],1000)

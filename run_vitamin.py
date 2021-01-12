@@ -593,6 +593,7 @@ def train(params=params,bounds=bounds,fixed_vals=fixed_vals,resume_training=Fals
     # if doing hour angle, use hour angle bounds on RA
     bounds['ra_min'] = convert_ra_to_hour_angle(bounds['ra_min'],params,None,single=True)
     bounds['ra_max'] = convert_ra_to_hour_angle(bounds['ra_max'],params,None,single=True)
+
     print('... converted RA bounds to hour angle')
 
     # define which gpu to use during training
@@ -839,6 +840,7 @@ def test(params=params,bounds=bounds,fixed_vals=fixed_vals,use_gpu=False):
             if len(filenames) < num_finished_post:
                 sampler_loc = i + str(j+1)
                 num_finished_post = len(filenames)
+
 
 
     # Assert user has the minimum number of test samples generated
