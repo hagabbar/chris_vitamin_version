@@ -9,7 +9,7 @@ from astropy import coordinates as coord
 from astropy.coordinates import SkyCoord, Angle
 from astropy import units as u
 
-def convert_ra_to_hour_angle(data, params, rand_pars=False, single=False):
+def convert_ra_to_hour_angle(data, params, pars, single=False):
     """
     Converts right ascension to hour angle and back again
 
@@ -39,12 +39,12 @@ def convert_ra_to_hour_angle(data, params, rand_pars=False, single=False):
         return t - data
 
     # get ra index
-    if rand_pars == True:
-        enume_pars = params['rand_pars']
-    else:
-        enume_pars = params['inf_pars']
+    #if rand_pars == True:
+    #    enume_pars = params['rand_pars']
+    #else:
+    #    enume_pars = params['inf_pars']
 
-    for i,k in enumerate(enume_pars):
+    for i,k in enumerate(pars):
         if k == 'ra':
             ra_idx = i 
 
@@ -60,7 +60,7 @@ def convert_ra_to_hour_angle(data, params, rand_pars=False, single=False):
 
     return data
 
-def convert_hour_angle_to_ra(data, params, rand_pars=False, single=False):
+def convert_hour_angle_to_ra(data, params, pars, single=False):
     """
     Converts right ascension to hour angle and back again
 
@@ -87,15 +87,15 @@ def convert_hour_angle_to_ra(data, params, rand_pars=False, single=False):
 
     # compute single instance
     if single:
-        return (t - data)
+        return np.remainder(t - data,2.0*np.pi)
 
     # get ra index
-    if rand_pars == True:
-        enume_pars = params['rand_pars']
-    else:
-        enume_pars = params['inf_pars']
+    #if rand_pars == True:
+    #    enume_pars = params['rand_pars']
+    #else:
+    #    enume_pars = params['inf_pars']
 
-    for i,k in enumerate(enume_pars):
+    for i,k in enumerate(pars):
         if k == 'ra':
             ra_idx = i
 
@@ -107,8 +107,7 @@ def convert_hour_angle_to_ra(data, params, rand_pars=False, single=False):
     else:
         # Iterate over all training samples and convert to hour angle
         for i in range(data.shape[0]):
-            #data[i,ra_idx] = np.remainder(t - data[i,ra_idx],2.0*np.pi)
-            data[i,ra_idx] = (t - data[i,ra_idx])
+            data[i,ra_idx] = np.remainder(t - data[i,ra_idx],2.0*np.pi)
 
     return data
 
