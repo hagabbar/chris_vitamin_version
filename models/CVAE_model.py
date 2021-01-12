@@ -34,7 +34,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 tfd = tfp.distributions
-SMALL_CONSTANT = 1e-12 # necessary to prevent the division by zero in many operations 
+SMALL_CONSTANT = 1e-6 # necessary to prevent the division by zero in many operations 
 GAUSS_RANGE = 10.0     # Actual range of truncated gaussian when the ramp is 0
 
 def load_chunk(input_dir,inf_pars,params,bounds,fixed_vals,load_condor=False):
@@ -100,7 +100,7 @@ def load_chunk(input_dir,inf_pars,params,bounds,fixed_vals,load_condor=False):
 
     if load_condor == False:
         # convert ra to hour angle if needed
-        data['x_data'] = convert_ra_to_hour_angle(data['x_data'], params, rand_pars=True)
+        data['x_data'] = convert_ra_to_hour_angle(data['x_data'], params, params['rand_pars'])
 
     # normalise the data parameters
     for i,k in enumerate(data_temp['rand_pars']):
@@ -177,7 +177,7 @@ def get_param_index(all_pars,pars):
      
     return mask, idx, np.sum(mask)
 
-def run(params, y_data_test, siz_x_data, load_dir):
+def run(params, x_data_test, y_data_test, load_dir, wrmp=None):
     """ Function to run a pre-trained tensorflow neural network
     
     Parameters
@@ -200,11 +200,11 @@ def run(params, y_data_test, siz_x_data, load_dir):
     mode_weights: array_like
         learned Gaussian Mixture Model modal weights
     """
-    multi_modal = True
 
     # USEFUL SIZES
     y_normscale = params['y_normscale']
-    xsh1 = siz_x_data
+    #xsh_train = len(params['rand_pars'])
+    xsh_inf = len(params['inf_pars'])
     ysh0 = np.shape(y_data_test)[0]
     ysh1 = np.shape(y_data_test)[1]
     z_dimension = params['z_dimension']
@@ -212,6 +212,7 @@ def run(params, y_data_test, siz_x_data, load_dir):
     n_weights_r2 = params['n_weights_r2']
     n_weights_q = params['n_weights_q']
     n_modes = params['n_modes']
+    n_modes_q = params['n_modes_q']
     n_hlayers_r1 = len(params['n_weights_r1'])
     n_hlayers_r2 = len(params['n_weights_r2'])
     n_hlayers_q = len(params['n_weights_q'])
@@ -225,6 +226,7 @@ def run(params, y_data_test, siz_x_data, load_dir):
     filter_size_r2 = params['filter_size_r2']
     filter_size_q = params['filter_size_q']
     batch_norm = params['batch_norm']
+    twod_conv = params['twod_conv']
     ysh_conv_r1 = ysh1
     ysh_conv_r2 = ysh1
     ysh_conv_q = ysh1
@@ -238,6 +240,9 @@ def run(params, y_data_test, siz_x_data, load_dir):
     pool_strides_r1 = params['pool_strides_r1']
     pool_strides_r2 = params['pool_strides_r2']
     pool_strides_q = params['pool_strides_q']
+    conv_dilations_r1 = params['conv_dilations_r1']
+    conv_dilations_q = params['conv_dilations_q']
+    conv_dilations_r2 = params['conv_dilations_r2']
     if n_filters_r1 != None:
         num_det = np.shape(y_data_test)[2]
     else:
@@ -253,7 +258,7 @@ def run(params, y_data_test, siz_x_data, load_dir):
     m2_mask, m2_idx_mask, m2_len = get_param_index(params['inf_pars'],['mass_2'])
     idx_mask = np.argsort(gauss_idx_mask + vonmise_idx_mask + m1_idx_mask + m2_idx_mask + sky_idx_mask) # + dist_idx_mask)
     masses_len = m1_len + m2_len
-
+    #inf_mask, inf_idx, _ = get_param_index(params['rand_pars'],params['inf_pars'])
    
     graph = tf.Graph()
     session = tf.Session(graph=graph)
@@ -264,39 +269,74 @@ def run(params, y_data_test, siz_x_data, load_dir):
         # PLACEHOLDERS
         bs_ph = tf.placeholder(dtype=tf.int64, name="bs_ph")                       # batch size placeholder
         y_ph = tf.placeholder(dtype=tf.float32, shape=[None, params['ndata'], num_det], name="y_ph")
+        x_ph = tf.placeholder(dtype=tf.float32, shape=[None, xsh_inf], name="x_ph")
+        wramp = tf.placeholder(dtype=tf.float32, shape=[n_modes])
 
         # LOAD VICI NEURAL NETWORKS
         r2_xzy = VI_decoder_r2.VariationalAutoencoder('VI_decoder_r2', vonmise_mask, gauss_mask, m1_mask, m2_mask, sky_mask, n_input1=z_dimension, 
-                                                     n_input2=params['ndata'], n_output=xsh1, n_channels=num_det, n_weights=n_weights_r2, 
-                                                     drate=drate, n_filters=n_filters_r2, 
-                                                     filter_size=filter_size_r2, maxpool=maxpool_r2, batch_norm = batch_norm)
+                                                     n_input2=params['ndata'], n_output=xsh_inf, n_channels=num_det, n_weights=n_weights_r2, 
+                                                     drate=drate, n_filters=n_filters_r2, strides=conv_strides_r2, dilations=conv_dilations_r2,
+                                                     filter_size=filter_size_r2, maxpool=maxpool_r2, batch_norm=batch_norm, twod_conv=twod_conv)
         r1_zy = VI_encoder_r1.VariationalAutoencoder('VI_encoder_r1', n_input=params['ndata'], n_output=z_dimension, n_channels=num_det, n_weights=n_weights_r1,   # generates params for r1(z|y)
-                                                    n_modes=n_modes, drate=drate, n_filters=n_filters_r1, 
-                                                    filter_size=filter_size_r1, maxpool=maxpool_r1, batch_norm = batch_norm)
-        q_zxy = VI_encoder_q.VariationalAutoencoder('VI_encoder_q', n_input1=xsh1, n_input2=params['ndata'], n_output=z_dimension, 
-                                                     n_channels=num_det, n_weights=n_weights_q, drate=drate, 
-                                                     n_filters=n_filters_q, filter_size=filter_size_q, maxpool=maxpool_q, batch_norm = batch_norm)
+                                                    n_modes=n_modes, drate=drate, n_filters=n_filters_r1, strides=conv_strides_r1, dilations=conv_dilations_r1,
+                                                    filter_size=filter_size_r1, maxpool=maxpool_r1, batch_norm=batch_norm, twod_conv=twod_conv)
+        q_zxy = VI_encoder_q.VariationalAutoencoder('VI_encoder_q', n_input1=xsh_inf, n_input2=params['ndata'], n_output=z_dimension, n_modes=n_modes_q,
+                                                     n_channels=num_det, n_weights=n_weights_q, drate=drate, strides=conv_strides_q, dilations=conv_dilations_q,
+                                                     n_filters=n_filters_q, filter_size=filter_size_q, maxpool=maxpool_q, batch_norm=batch_norm, twod_conv=twod_conv)
 
         # reduce the y data size
         y_conv = y_ph
+        #x_inf = tf.boolean_mask(x_ph,inf_mask,axis=1))
 
         # GET r1(z|y)
         r1_loc, r1_scale, r1_weight = r1_zy._calc_z_mean_and_sigma(y_conv,training=False)
         temp_var_r1 = SMALL_CONSTANT + tf.exp(r1_scale)
 
+        # TESTING - cyclic latent space dimensions - HARDCODED FOR Z-DIM=7
+        #bimix_gauss = tfd.Mixture(
+        #    cat=tfd.Categorical(logits=r1_weight),
+        #        components=[
+        #            tfp.distributions.VonMises(
+        #                  loc=2.0*np.pi*(tf.sigmoid(tf.slice(r1_loc,[0,0,0],[bs_ph,n_modes,1]))-0.5),   # remap 0>1 mean onto -pi->pi range
+        #                  concentration=tf.math.reciprocal(SMALL_CONSTANT + tf.exp(-1.0*tf.nn.relu(tf.slice(r1_scale,[0,0,0],[bs_ph,n_modes,1]))))),
+        #            tfp.distributions.VonMises(
+        #                  loc=2.0*np.pi*(tf.sigmoid(tf.slice(r1_loc,[0,0,1],[bs_ph,n_modes,1]))-0.5),   # remap 0>1 mean onto -pi->pi range
+        #                  concentration=tf.math.reciprocal(SMALL_CONSTANT + tf.exp(-1.0*tf.nn.relu(tf.slice(r1_scale,[0,0,1],[bs_ph,n_modes,1]))))),
+        #            tfd.Normal(loc=tf.slice(r1_loc,[0,0,vonmise_len],[bs_ph,n_modes,1]), scale=tf.sqrt(tf.slice(temp_var_r1,[0,0,vonmise_len],[bs_ph,n_modes,1]))),
+        #            tfd.Normal(loc=tf.slice(r1_loc,[0,0,vonmise_len+1],[bs_ph,n_modes,1]), scale=tf.sqrt(tf.slice(temp_var_r1,[0,0,vonmise_len+1],[bs_ph,n_modes,1]))),
+        #            tfd.Normal(loc=tf.slice(r1_loc,[0,0,vonmise_len+2],[bs_ph,n_modes,1]), scale=tf.sqrt(tf.slice(temp_var_r1,[0,0,vonmise_len+2],[bs_ph,n_modes,1]))),
+        #            tfd.Normal(loc=tf.slice(r1_loc,[0,0,vonmise_len+3],[bs_ph,n_modes,1]), scale=tf.sqrt(tf.slice(temp_var_r1,[0,0,vonmise_len+3],[bs_ph,n_modes,1]))),
+        #            tfd.Normal(loc=tf.slice(r1_loc,[0,0,vonmise_len+4],[bs_ph,n_modes,1]), scale=tf.sqrt(tf.slice(temp_var_r1,[0,0,vonmise_len+4],[bs_ph,n_modes,1]))),
+        #])
+
         # define the r1(z|y) mixture model
+        r1_probs = r1_weight + tf.tile(tf.reshape(tf.log(wramp),[1,-1]),(bs_ph,1))  # apply weight ramps
         bimix_gauss = tfd.MixtureSameFamily(
-                          mixture_distribution=tfd.Categorical(logits=r1_weight),
+                          mixture_distribution=tfd.Categorical(logits=r1_probs),
                           components_distribution=tfd.MultivariateNormalDiag(
                           loc=r1_loc,
                           scale_diag=tf.sqrt(temp_var_r1)))
 
-
         # DRAW FROM r1(z|y)
         r1_zy_samp = bimix_gauss.sample()
 
+        # GET q(z|x,y)
+        q_zxy_mean, q_zxy_log_sig_sq, q_weight = q_zxy._calc_z_mean_and_sigma(x_ph,y_conv,training=False)
+
+        # DRAW FROM q(z|x,y)
+        temp_var_q = SMALL_CONSTANT + tf.exp(q_zxy_log_sig_sq)
+        mvn_q = tfd.MixtureSameFamily(
+                          mixture_distribution=tfd.Categorical(logits=q_weight),
+                          components_distribution=tfd.MultivariateNormalDiag(
+                          loc=q_zxy_mean,
+                          scale_diag=tf.sqrt(temp_var_q)))
+        #mvn_q = tfp.distributions.MultivariateNormalDiag(
+        #                  loc=q_zxy_mean,
+        #                  scale_diag=tf.sqrt(temp_var_q))
+        q_zxy_samp = mvn_q.sample()
+
         # GET r2(x|z,y) from r1(z|y) samples
-        reconstruction_xzy = r2_xzy.calc_reconstruction(r1_zy_samp,y_ph,training=False)
+        reconstruction_xzy = r2_xzy.calc_reconstruction(r1_zy_samp,y_conv,training=False)
 
         # ugly but needed for now
         # extract the means and variances of the physical parameter distribution
@@ -309,7 +349,7 @@ def run(params, y_data_test, siz_x_data, load_dir):
         r2_xzy_mean_m2 = reconstruction_xzy[6]
         r2_xzy_log_sig_sq_m2 = reconstruction_xzy[7]
         r2_xzy_mean_sky = reconstruction_xzy[8]
-        r2_xzy_log_sig_sq_sky = tf.slice(reconstruction_xzy[9],[0,0],[-1,1])      # sky log var (only take first dimension)
+        r2_xzy_log_sig_sq_sky = tf.slice(reconstruction_xzy[9],[0,0],[bs_ph,1])      # sky log var (only take first dimension)
 
         # draw from r2(x|z,y) - the masses
         if m1_len>0 and m2_len>0:
@@ -348,8 +388,8 @@ def run(params, y_data_test, siz_x_data, load_dir):
                           mean_direction=tf.math.l2_normalize(tf.reshape(r2_xzy_mean_sky,[bs_ph,3]),axis=1),
                           concentration=con)   # define p_vm(2*pi*mu,con=1/sig^2)
             xyz = tf.reshape(von_mises_fisher.sample(),[bs_ph,3])          # sample the distribution
-            samp_ra = tf.math.floormod(tf.atan2(tf.slice(xyz,[0,1],[-1,1]),tf.slice(xyz,[0,0],[-1,1])),2.0*np.pi)/(2.0*np.pi)   # convert to the rescaled 0->1 RA from the unit vector
-            samp_dec = (tf.asin(tf.slice(xyz,[0,2],[-1,1])) + 0.5*np.pi)/np.pi                       # convert to the rescaled 0->1 dec from the unit vector
+            samp_ra = tf.math.floormod(tf.atan2(tf.slice(xyz,[0,1],[bs_ph,1]),tf.slice(xyz,[0,0],[bs_ph,1])),2.0*np.pi)/(2.0*np.pi)   # convert to the rescaled 0->1 RA from the unit vector
+            samp_dec = (tf.asin(tf.slice(xyz,[0,2],[bs_ph,1])) + 0.5*np.pi)/np.pi                       # convert to the rescaled 0->1 dec from the unit vector
             r2_xzy_samp_sky = tf.reshape(tf.concat([samp_ra,samp_dec],axis=1),[bs_ph,2])             # group the sky samples
         else:
             r2_xzy_samp_sky = tf.zeros([bs_ph,0], tf.float32)
@@ -357,15 +397,6 @@ def run(params, y_data_test, siz_x_data, load_dir):
         # combine the samples
         r2_xzy_samp = tf.concat([r2_xzy_samp_gauss,r2_xzy_samp_vonmise,r2_xzy_samp_masses,r2_xzy_samp_sky],axis=1)
         r2_xzy_samp = tf.gather(r2_xzy_samp,tf.constant(idx_mask),axis=1)
-        
-        # VARIABLES LISTS
-        #var_list_VICI = [var for var in tf.trainable_variables() if var.name.startswith("VI")]
-
-        #vars = tf.global_variables() # shows every variable being used.
-        #vars_moving_mean_variance = []
-        #for var in vars:
-        #    if ("moving_mean" in var.name) or ("moving_variance" in var.name):
-        #        vars_moving_mean_variance.append(var)
 
         # INITIALISE AND RUN SESSION
         init = tf.initialize_all_variables()
@@ -377,12 +408,13 @@ def run(params, y_data_test, siz_x_data, load_dir):
     ns = params['n_samples'] # number of samples to save per reconstruction 
 
     y_data_test_exp = np.tile(y_data_test,(ns,1))
+    x_data_test_exp = np.tile(x_data_test,(ns,1))
     y_data_test_exp = y_data_test_exp.reshape(-1,params['ndata'],num_det)/y_normscale
     run_startt = time.time()
-    xs, mode_weights, zsamp = session.run([r2_xzy_samp,r1_weight,r1_zy_samp],feed_dict={bs_ph:ns,y_ph:y_data_test_exp})
+    xs, mode_weights, zsamp, qzsamp, wgt, qwgt, zloc = session.run([r2_xzy_samp,r1_weight,r1_zy_samp,q_zxy_samp,r1_probs,q_weight,r1_loc],feed_dict={bs_ph:ns,y_ph:y_data_test_exp,x_ph:x_data_test_exp,wramp:wrmp})
     run_endt = time.time()
 
-    return xs, (run_endt - run_startt), mode_weights, zsamp
+    return xs, (run_endt - run_startt), mode_weights, zsamp, qzsamp, wgt, qwgt, zloc
 
 def train(params, x_data, y_data, x_data_val, y_data_val, x_data_test, y_data_test, y_data_test_noisefree, save_dir, truth_test, bounds, fixed_vals, posterior_truth_test,snrs_test=None):    
     """ Main function to train tensorflow model
@@ -415,9 +447,6 @@ def train(params, x_data, y_data, x_data_val, y_data_val, x_data_test, y_data_te
         posterior from test Bayesian sampler analysis 
     """
 
-    # if True, do multi-modal
-    multi_modal = True
-
     # USEFUL SIZES
     y_normscale = params['y_normscale']
     xsh = np.shape(x_data)
@@ -429,6 +458,7 @@ def train(params, x_data, y_data, x_data_val, y_data_val, x_data_test, y_data_te
     n_weights_r2 = params['n_weights_r2']
     n_weights_q = params['n_weights_q']
     n_modes = params['n_modes']
+    n_modes_q = params['n_modes_q']
     n_hlayers_r1 = len(params['n_weights_r1'])
     n_hlayers_r2 = len(params['n_weights_r2'])
     n_hlayers_q = len(params['n_weights_q'])
@@ -450,10 +480,11 @@ def train(params, x_data, y_data, x_data_val, y_data_val, x_data_test, y_data_te
     pool_strides_r1 = params['pool_strides_r1']
     pool_strides_r2 = params['pool_strides_r2']
     pool_strides_q = params['pool_strides_q']
+    conv_dilations_r1 = params['conv_dilations_r1']
+    conv_dilations_q = params['conv_dilations_q']
+    conv_dilations_r2 = params['conv_dilations_r2']
     batch_norm = params['batch_norm']
-    ysh_conv_r1 = int(ysh)
-    ysh_conv_r2 = int(ysh)
-    ysh_conv_q = int(ysh)
+    twod_conv = params['twod_conv']
     drate = params['drate']
     ramp_start = params['ramp_start']
     ramp_end = params['ramp_end']
@@ -470,7 +501,10 @@ def train(params, x_data, y_data, x_data_val, y_data_val, x_data_test, y_data_te
     dec_mask, dec_idx_mask, dec_len = get_param_index(params['inf_pars'],['dec'])
     m1_mask, m1_idx_mask, m1_len = get_param_index(params['inf_pars'],['mass_1'])
     m2_mask, m2_idx_mask, m2_len = get_param_index(params['inf_pars'],['mass_2'])
-    idx_mask = np.argsort(gauss_idx_mask + vonmise_idx_mask + m1_idx_mask + m2_idx_mask + sky_idx_mask) # + dist_idx_mask)
+    idx_mask = np.argsort(gauss_idx_mask + vonmise_idx_mask + m1_idx_mask + m2_idx_mask + sky_idx_mask)
+
+    inf_ol_mask, inf_ol_idx, inf_ol_len = get_param_index(params['inf_pars'],params['bilby_pars'])
+    bilby_ol_mask, bilby_ol_idx, bilby_ol_len = get_param_index(params['bilby_pars'],params['inf_pars'])
 
     graph = tf.Graph()
     session = tf.Session(graph=graph)
@@ -481,60 +515,73 @@ def train(params, x_data, y_data, x_data_val, y_data_val, x_data_test, y_data_te
         x_ph = tf.placeholder(dtype=tf.float32, shape=[None, xsh[1]], name="x_ph") # params placeholder
         y_ph = tf.placeholder(dtype=tf.float32, shape=[None, params['ndata'], num_det], name="y_ph")
         ramp = tf.placeholder(dtype=tf.float32)    # the ramp to slowly increase the KL contribution
+        wramp = tf.placeholder(dtype=tf.float32, shape=[n_modes]) # r1 weight ramp placeholder
+        skyramp = tf.placeholder(dtype=tf.float32) # sky loss ramp placeholder
         extra_lr_decay_factor = tf.placeholder(dtype=tf.float32)    # the ramp to slowly increase the KL contribution
 
         # LOAD VICI NEURAL NETWORKS
         r1_zy = VI_encoder_r1.VariationalAutoencoder('VI_encoder_r1', n_input=params['ndata'], n_output=z_dimension, n_channels=num_det, n_weights=n_weights_r1,   # generates params for r1(z|y)
-                                                    n_modes=n_modes, drate=drate, n_filters=n_filters_r1, 
-                                                    filter_size=filter_size_r1, maxpool=maxpool_r1, batch_norm = batch_norm)
+                                                    n_modes=n_modes, drate=drate, n_filters=n_filters_r1, strides=conv_strides_r1, dilations=conv_dilations_r1,
+                                                    filter_size=filter_size_r1, maxpool=maxpool_r1, batch_norm=batch_norm, twod_conv=twod_conv)
         r2_xzy = VI_decoder_r2.VariationalAutoencoder('VI_decoder_r2', vonmise_mask, gauss_mask, m1_mask, m2_mask, sky_mask, n_input1=z_dimension, 
                                                      n_input2=params['ndata'], n_output=xsh[1], n_channels=num_det, n_weights=n_weights_r2, 
-                                                     drate=drate, n_filters=n_filters_r2, 
-                                                     filter_size=filter_size_r2, maxpool=maxpool_r2, batch_norm = batch_norm)
-        q_zxy = VI_encoder_q.VariationalAutoencoder('VI_encoder_q', n_input1=xsh[1], n_input2=params['ndata'], n_output=z_dimension, 
-                                                     n_channels=num_det, n_weights=n_weights_q, drate=drate, 
-                                                     n_filters=n_filters_q, filter_size=filter_size_q, maxpool=maxpool_q, batch_norm = batch_norm) 
-        rnn = VI_rnn.VariationalAutoencoder('VI_rnn', n_input=params['ndata'], n_channels=num_det, n_filters=8, filter_size=9)
+                                                     drate=drate, n_filters=n_filters_r2, strides=conv_strides_r2, dilations=conv_dilations_r2,
+                                                     filter_size=filter_size_r2, maxpool=maxpool_r2, batch_norm=batch_norm, twod_conv=twod_conv)
+        q_zxy = VI_encoder_q.VariationalAutoencoder('VI_encoder_q', n_input1=xsh[1], n_input2=params['ndata'], n_output=z_dimension, n_modes=n_modes_q,
+                                                     n_channels=num_det, n_weights=n_weights_q, drate=drate, strides=conv_strides_q, dilations=conv_dilations_q,
+                                                     n_filters=n_filters_q, filter_size=filter_size_q, maxpool=maxpool_q, batch_norm=batch_norm, twod_conv=twod_conv) 
 
         tf.set_random_seed(np.random.randint(0,10))
 
-        # reduce the y data size
-        y_conv = y_ph
+        # add noise to the data - MUST apply normscale to noise !!!!
+        y_conv = y_ph + tf.random.normal([bs_ph,params['ndata'],num_det],0.0,1.0,dtype=tf.float32)/y_normscale
 
         # GET r1(z|y)
         # run inverse autoencoder to generate mean and logvar of z given y data - these are the parameters for r1(z|y)
         r1_loc, r1_scale, r1_weight = r1_zy._calc_z_mean_and_sigma(y_conv,training=True)
         temp_var_r1 = SMALL_CONSTANT + tf.exp(r1_scale)
 
-        # apply ramp to weights to allow each mode to appear gradually
-        #rmp_idx = tf.cast(ramp*(n_modes-1),dtype=tf.int64) + 1
-        #new_r1_weight = tf.slice(r1_weight,[0,0],[-1,rmp_idx])
-        #new_r1_loc = tf.slice(r1_loc,[0,0,0],[-1,rmp_idx,-1])
-        #new_temp_var_r1 = tf.slice(temp_var_r1,[0,0,0],[-1,rmp_idx,-1])  
- 
+        # TESTING - cyclic latent space dimensions
+        #bimix_gauss = tfd.MixtureSameFamily(
+        #    mixture_distribution=tfd.Categorical(logits=r1_weight),
+        #bimix_gauss_test = tfd.JointDistributionSequential([
+        #        tfp.distributions.VonMises(
+        #                  loc=2.0*np.pi*(tf.sigmoid(tf.squeeze(tf.slice(r1_loc,[0,0,0],[bs_ph,n_modes,1]))-0.5)),   # remap 0>1 mean onto -pi->pi range
+        #                  concentration=tf.math.reciprocal(SMALL_CONSTANT + tf.exp(-1.0*tf.nn.relu(tf.squeeze(tf.slice(r1_scale,[0,0,0],[bs_ph,n_modes,1])))))),
+        #            tfp.distributions.VonMises(
+        #                  loc=2.0*np.pi*(tf.sigmoid(tf.squeeze(tf.slice(r1_loc,[0,0,1],[bs_ph,n_modes,1])))-0.5),   # remap 0>1 mean onto -pi->pi range
+        #                  concentration=tf.math.reciprocal(SMALL_CONSTANT + tf.exp(-1.0*tf.nn.relu(tf.squeeze(tf.slice(r1_scale,[0,0,1],[bs_ph,n_modes,1])))))),
+        #            tfd.Normal(loc=tf.squeeze(tf.slice(r1_loc,[0,0,vonmise_len],[bs_ph,n_modes,1])), scale=tf.sqrt(tf.squeeze(tf.slice(temp_var_r1,[0,0,vonmise_len],[bs_ph,n_modes,1])))),
+        #            tfd.Normal(loc=tf.squeeze(tf.slice(r1_loc,[0,0,vonmise_len+1],[bs_ph,n_modes,1])), scale=tf.sqrt(tf.squeeze(tf.slice(temp_var_r1,[0,0,vonmise_len+1],[bs_ph,n_modes,1])))),
+        #            tfd.Normal(loc=tf.squeeze(tf.slice(r1_loc,[0,0,vonmise_len+2],[bs_ph,n_modes,1])), scale=tf.sqrt(tf.squeeze(tf.slice(temp_var_r1,[0,0,vonmise_len+2],[bs_ph,n_modes,1])))),
+        #            tfd.Normal(loc=tf.squeeze(tf.slice(r1_loc,[0,0,vonmise_len+3],[bs_ph,n_modes,1])), scale=tf.sqrt(tf.squeeze(tf.slice(temp_var_r1,[0,0,vonmise_len+3],[bs_ph,n_modes,1])))),
+        #            tfd.Normal(loc=tf.squeeze(tf.slice(r1_loc,[0,0,vonmise_len+4],[bs_ph,n_modes,1])), scale=tf.sqrt(tf.squeeze(tf.slice(temp_var_r1,[0,0,vonmise_len+4],[bs_ph,n_modes,1])))),
+        #    ])
+        #)
+
         # define the r1(z|y) mixture model
+        r1_probs = r1_weight + tf.tile(tf.reshape(tf.log(wramp),[1,-1]),(bs_ph,1))  # apply weight ramps
         bimix_gauss = tfd.MixtureSameFamily(
-                          mixture_distribution=tfd.Categorical(logits=r1_weight),
+                          mixture_distribution=tfd.Categorical(logits=r1_probs),
                           components_distribution=tfd.MultivariateNormalDiag(
                           loc=r1_loc,
                           scale_diag=tf.sqrt(temp_var_r1)))
-
-        # DRAW FROM r1(z|y) - given the Gaussian parameters generate z samples
-        r1_zy_samp = bimix_gauss.sample()        
         
         # GET q(z|x,y)
-        q_zxy_mean, q_zxy_log_sig_sq = q_zxy._calc_z_mean_and_sigma(x_ph,y_conv,training=True)
+        q_zxy_mean, q_zxy_log_sig_sq, q_weight = q_zxy._calc_z_mean_and_sigma(x_ph,y_conv,training=True)
 
         # DRAW FROM q(z|x,y)
         temp_var_q = SMALL_CONSTANT + tf.exp(q_zxy_log_sig_sq)
-        mvn_q = tfp.distributions.MultivariateNormalDiag(
+        mvn_q = tfd.MixtureSameFamily(
+                          mixture_distribution=tfd.Categorical(logits=q_weight),
+                          components_distribution=tfd.MultivariateNormalDiag(
                           loc=q_zxy_mean,
-                          scale_diag=tf.sqrt(temp_var_q))
+                          scale_diag=tf.sqrt(temp_var_q)))
         q_zxy_samp = mvn_q.sample()  
 
         # GET r2(x|z,y)
-        eps = tf.random.normal([bs_ph, params['ndata'], num_det], 0, 1., dtype=tf.float32)
-        y_ph_ramp = tf.add(tf.multiply(ramp,y_conv), tf.multiply((1.0-ramp), eps))
+        #eps = tf.random.normal([bs_ph, params['ndata'], num_det], 0, 1., dtype=tf.float32)
+        y_ph_ramp = y_conv #tf.add(tf.multiply(ramp,y_conv), tf.multiply((1.0-ramp), eps))
         reconstruction_xzy = r2_xzy.calc_reconstruction(q_zxy_samp,y_ph_ramp,training=True)
 
         # ugly but required for now - unpack the r2 output params
@@ -547,7 +594,7 @@ def train(params, x_data, y_data, x_data_val, y_data_val, x_data_test, y_data_te
         r2_xzy_mean_m2 = reconstruction_xzy[6]              # m2 mean (m2 will be conditional on m1)
         r2_xzy_log_sig_sq_m2 = reconstruction_xzy[7]        # m2 log var (m2 will be conditional on m1)
         r2_xzy_mean_sky = reconstruction_xzy[8]             # sky mean unit vector (3D)
-        r2_xzy_log_sig_sq_sky = tf.slice(reconstruction_xzy[9],[0,0],[-1,1])      # sky log var (only take first dimension)
+        r2_xzy_log_sig_sq_sky = tf.slice(reconstruction_xzy[9],[0,0],[bs_ph,1])      # sky log var (only take first dimension)
 
         # COST FROM RECONSTRUCTION - the masses
         # this sets up a joint distribution on m1 and m2 with m2 being conditional on m1
@@ -582,14 +629,12 @@ def train(params, x_data, y_data, x_data_val, y_data_val, x_data_test, y_data_te
                           loc=2.0*np.pi*(tf.reshape(r2_xzy_mean_vonmise,[-1,vonmise_len])-0.5),   # remap 0>1 mean onto -pi->pi range
                           concentration=con_vonmise)
             reconstr_loss_vonmise = tf.reduce_sum(von_mises.log_prob(2.0*np.pi*(tf.reshape(tf.boolean_mask(x_ph,vonmise_mask,axis=1),[-1,vonmise_len]) - 0.5)),axis=1)   # 2pi is the von mises input range
-            
-            #reconstr_loss_vonmise = reconstr_loss_vonmise[:,0] + reconstr_loss_vonmise[:,1]
 
             # computing Gaussian likelihood for von mises parameters to be faded away with the ramp
-            gauss_vonmises = tfp.distributions.MultivariateNormalDiag(
-                         loc=r2_xzy_mean_vonmise,
-                         scale_diag=tf.sqrt(temp_var_r2_vonmise))
-            reconstr_loss_gauss_vonmise = gauss_vonmises.log_prob(tf.boolean_mask(x_ph,vonmise_mask,axis=1))        
+            gauss_vonmises = tfd.TruncatedNormal(r2_xzy_mean_vonmise,
+                                                 tf.sqrt(temp_var_r2_vonmise),
+                                                 -GAUSS_RANGE*(1.0-ramp),GAUSS_RANGE*(1.0-ramp) + 1.0)
+            reconstr_loss_gauss_vonmise = tf.reduce_sum(tf.reshape(gauss_vonmises.log_prob(tf.boolean_mask(x_ph,vonmise_mask,axis=1)),[-1,vonmise_len]),axis=1)        
             reconstr_loss_vonmise = ramp*reconstr_loss_vonmise + (1.0-ramp)*reconstr_loss_gauss_vonmise    # start with a Gaussian model and fade in the true vonmises
         else:
             reconstr_loss_vonmise = 0.0
@@ -608,40 +653,30 @@ def train(params, x_data, y_data, x_data_val, y_data_val, x_data_test, y_data_te
             reconstr_loss_sky = von_mises_fisher.log_prob(tf.math.l2_normalize(xyz_unit,axis=1))   # normalise it for safety (should already be normalised) and compute the logprob
 
             # computing Gaussian likelihood for von mises Fisher (sky) parameters to be faded away with the ramp
-            mean_ra = tf.math.floormod(tf.atan2(tf.slice(loc_xyz,[0,1],[-1,1]),tf.slice(loc_xyz,[0,0],[-1,1])),2.0*np.pi)/(2.0*np.pi)    # convert the unit vector to scaled 0->1 RA 
-            mean_dec = (tf.asin(tf.slice(loc_xyz,[0,2],[-1,1])) + 0.5*np.pi)/np.pi        # convert the unit vector to scaled 0->1 dec
+            mean_ra = tf.math.floormod(tf.atan2(tf.slice(loc_xyz,[0,1],[bs_ph,1]),tf.slice(loc_xyz,[0,0],[bs_ph,1])),2.0*np.pi)/(2.0*np.pi)    # convert the unit vector to scaled 0->1 RA 
+            mean_dec = (tf.asin(tf.slice(loc_xyz,[0,2],[bs_ph,1])) + 0.5*np.pi)/np.pi        # convert the unit vector to scaled 0->1 dec
             mean_sky = tf.reshape(tf.concat([mean_ra,mean_dec],axis=1),[bs_ph,2])        # package up the scaled RA and dec 
-            gauss_sky = tfp.distributions.MultivariateNormalDiag(
-                         loc=mean_sky,
-                         scale_diag=tf.concat([tf.sqrt(temp_var_r2_sky),tf.sqrt(temp_var_r2_sky)],axis=1))   # use the same 1D concentration parameter for both RA and dec dimensions
-            reconstr_loss_gauss_sky = gauss_sky.log_prob(tf.boolean_mask(x_ph,sky_mask,axis=1))     # compute the logprob at the true sky location
+            scale_sky = tf.concat([tf.sqrt(temp_var_r2_sky),tf.sqrt(temp_var_r2_sky)],axis=1)
+            gauss_sky = tfd.TruncatedNormal(mean_sky,scale_sky,-GAUSS_RANGE*(1.0-ramp),GAUSS_RANGE*(1.0-ramp) + 1.0)
+            reconstr_loss_gauss_sky = tf.reduce_sum(gauss_sky.log_prob(tf.boolean_mask(x_ph,sky_mask,axis=1)),axis=1)
             reconstr_loss_sky = ramp*reconstr_loss_sky + (1.0-ramp)*reconstr_loss_gauss_sky   # start with a Gaussian model and fade in the true vonmises Fisher
         else:
             reconstr_loss_sky = 0.0
 
-        cost_R = -1.0*tf.reduce_mean(reconstr_loss_gauss + reconstr_loss_vonmise + reconstr_loss_masses + reconstr_loss_sky)
-        r2_xzy_mean = tf.gather(tf.concat([r2_xzy_mean_gauss,r2_xzy_mean_vonmise,r2_xzy_mean_m1,r2_xzy_mean_m2,r2_xzy_mean_sky],axis=1),tf.constant(idx_mask),axis=1)      # put the elements back in order
-        r2_xzy_scale = tf.gather(tf.concat([r2_xzy_log_sig_sq_gauss,r2_xzy_log_sig_sq_vonmise,r2_xzy_log_sig_sq_m1,r2_xzy_log_sig_sq_m2,r2_xzy_log_sig_sq_sky],axis=1),tf.constant(idx_mask),axis=1)   # put the elements back in order
-        r2_xzy_mean = tf.gather(tf.concat([r2_xzy_mean_gauss,r2_xzy_mean_vonmise,r2_xzy_mean_m1,r2_xzy_mean_m2],axis=1),tf.constant(idx_mask),axis=1)      # put the elements back in order
-        r2_xzy_scale = tf.gather(tf.concat([r2_xzy_log_sig_sq_gauss,r2_xzy_log_sig_sq_vonmise,r2_xzy_log_sig_sq_m1,r2_xzy_log_sig_sq_m2],axis=1),tf.constant(idx_mask),axis=1)
+        cost_R = -1.0*tf.reduce_mean(reconstr_loss_gauss + reconstr_loss_vonmise + reconstr_loss_masses + skyramp*reconstr_loss_sky)
+        #r2_xzy_mean = tf.gather(tf.concat([r2_xzy_mean_gauss,r2_xzy_mean_vonmise,r2_xzy_mean_m1,r2_xzy_mean_m2,r2_xzy_mean_sky],axis=1),tf.constant(idx_mask),axis=1)      # put the elements back in order
+        #r2_xzy_scale = tf.gather(tf.concat([r2_xzy_log_sig_sq_gauss,r2_xzy_log_sig_sq_vonmise,r2_xzy_log_sig_sq_m1,r2_xzy_log_sig_sq_m2,r2_xzy_log_sig_sq_sky],axis=1),tf.constant(idx_mask),axis=1)   # put the elements back in order
+        #r2_xzy_mean = tf.gather(tf.concat([r2_xzy_mean_gauss,r2_xzy_mean_vonmise,r2_xzy_mean_m1,r2_xzy_mean_m2],axis=1),tf.constant(idx_mask),axis=1)      # put the elements back in order
+        #r2_xzy_scale = tf.gather(tf.concat([r2_xzy_log_sig_sq_gauss,r2_xzy_log_sig_sq_vonmise,r2_xzy_log_sig_sq_m1,r2_xzy_log_sig_sq_m2],axis=1),tf.constant(idx_mask),axis=1)
        
-        #log_q_q = mvn_q.log_prob(q_zxy_samp)
-        #log_r1_q = bimix_gauss.log_prob(q_zxy_samp)   # evaluate the log prob of r1 at the q samples
-        #KL = tf.reduce_mean(log_q_q - log_r1_q)      # average over batch
-
         # fake larger batch averaging for KL calculation
         extra_q_zxy_samp = mvn_q.sample(n_KLzsamp)
         log_q_q = mvn_q.log_prob(extra_q_zxy_samp)
         log_r1_q = bimix_gauss.log_prob(extra_q_zxy_samp)   # evaluate the log prob of r1 at the q samples
         KL = tf.reduce_mean(log_q_q - log_r1_q)      # average over batch
-
-        # regularisation loss
-        #wt = tf.exp(r1_weight)
-        #wt = wt/tf.reduce_sum(r1_weight,axis=1,keepdims=True)
-        #REG = 0.0*tf.nn.l2_loss(wt)
-
+        
         # THE VICI COST FUNCTION
-        COST = cost_R + ramp*KL #+ ramp*REG
+        COST = cost_R + ramp*KL	
 
         # VARIABLES LISTS
         var_list_VICI = [var for var in tf.trainable_variables()] # if var.name.startswith("VI")]
@@ -658,11 +693,11 @@ def train(params, x_data, y_data, x_data_val, y_data_val, x_data_test, y_data_te
         update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)                            
         with tf.control_dependencies(update_ops):                                                            
             optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate)
+            #gvs = optimizer.compute_gradients(COST)
+            #capped_gvs = [(tf.clip_by_norm(grad, 1.0), var) for grad, var in gvs]
+            #minimize = optimizer.apply_gradients(capped_gvs)
             minimize = optimizer.minimize(COST,var_list = var_list_VICI, global_step=global_step)
 
-        #optimizer = tf.train.AdamOptimizer(learning_rate)
-        #minimize = optimizer.minimize(COST,var_list = var_list_VICI, global_step=global_step)
-        
         # INITIALISE AND RUN SESSION
         init = tf.global_variables_initializer()
         session.run(init)
@@ -673,11 +708,15 @@ def train(params, x_data, y_data, x_data_val, y_data_val, x_data_test, y_data_te
     indices_generator = batch_manager.SequentialIndexer(params['batch_size'], xsh[0])
     val_indices_generator = batch_manager.SequentialIndexer(params['batch_size'], valsize)
     plotdata = []
+    kldata = []
+    klxaxis = []
 
     # Convert right ascension to hour angle
     x_data_test_hour_angle = np.copy(x_data_test)
-    x_data_test_hour_angle = convert_ra_to_hour_angle(x_data_test_hour_angle, params)
+    x_data_test_hour_angle = convert_ra_to_hour_angle(x_data_test_hour_angle, params, params['inf_pars'])
 
+
+    time_check = 0.0
     load_chunk_it = 1
     for i in range(params['num_iterations']):
 
@@ -687,12 +726,36 @@ def train(params, x_data, y_data, x_data_val, y_data_val, x_data_test, y_data_te
             ramp_epoch = np.log10(float(i))
             #ramp_duration = (np.log10(ramp_end) - np.log10(ramp_start))/5.0
             if i>ramp_start:
+                #rmp = 0.0
                 rmp = (ramp_epoch - np.log10(ramp_start))/(np.log10(ramp_end) - np.log10(ramp_start))
+                #rmp = 1.0 - np.exp(-(float(i)-ramp_start)/ramp_end)*np.cos(2.0*np.pi*(float(i)-ramp_start)/ramp_end)
+
                 #rmp = np.remainder(ramp_epoch-np.log10(ramp_start),ramp_duration)/ramp_duration
             if i>ramp_end:
                 rmp = 1.0
         else:
             rmp = 1.0
+
+        # TESTING r1 weight ramp
+        wrmp = np.ones(n_modes)
+        #wrmp = np.zeros(n_modes)
+        #wrmp[0] = 1.0
+        #for s in range(1,n_modes):
+        #    wstart = ramp_end + (s-1)*0.25*ramp_end
+        #    if i>wstart:
+        #       wrmp[s] = min((i-wstart)/(0.25*ramp_end),1.0)
+
+        # TESTING sky ramp
+        srmp = 0.0
+        if params['ramp'] == True:
+            ramp_epoch = np.log10(float(i))
+            if i>ramp_end:
+                srmp = (ramp_epoch - np.log10(ramp_end))/(np.log10(2.0*ramp_end) - np.log10(ramp_end))
+            if i>2*ramp_end:
+                srmp = 1.0
+        else:
+            srmp = 1.0
+
 
         next_indices = indices_generator.next_indices()
         # if load chunks true, load in data by chunks
@@ -700,25 +763,10 @@ def train(params, x_data, y_data, x_data_val, y_data_val, x_data_test, y_data_te
             x_data, y_data = load_chunk(params['train_set_dir'],params['inf_pars'],params,bounds,fixed_vals)
             load_chunk_it += 1
 
-        # slowly bring in the other detector data
-        #rmp2 = 0.0
-        #rmp3 = 0.0
-        #if i>ramp_start:
-        #    rmp2 = (ramp_epoch - np.log10(ramp_start))/(np.log10(ramp_end/2.0) - np.log10(ramp_start))
-        #if i>ramp_end/2.0:
-        #    rmp2 = 1.0
-        #    rmp3 = (ramp_epoch - np.log10(ramp_end/2.0))/(np.log10(ramp_end) - np.log10(ramp_end/2.0))
-        #if i>ramp_end:
-        #    rmp3 = 1.0
-        #y_data[next_indices,:,1] *= rmp2
-        #y_data[next_indices,:,2] *= rmp3  
+        # get next batch and normalise
 
-        # Make noise realizations and add to training data
         next_x_data = x_data[next_indices,:]
-        if n_conv_r1 != None:
-            next_y_data = y_data[next_indices,:] + np.random.normal(0,1.0,size=(params['batch_size'],int(params['ndata']),len(params['det'])))
-        else:
-            next_y_data = y_data[next_indices,:] + np.random.normal(0,1.0,size=(params['batch_size'],int(params['ndata']*len(params['det']))))
+        next_y_data = y_data[next_indices,:]
         next_y_data /= y_normscale
 
         # restore session if wanted
@@ -732,36 +780,26 @@ def train(params, x_data, y_data, x_data_val, y_data_val, x_data_test, y_data_te
             edf = 0.95
 
         # train the network
-        session.run(minimize, feed_dict={bs_ph:bs, x_ph:next_x_data, y_ph:next_y_data, ramp:rmp, extra_lr_decay_factor:edf}) 
+        t0 = time.time()
+        session.run(minimize, feed_dict={bs_ph:bs, x_ph:next_x_data, y_ph:next_y_data, ramp:rmp, wramp:wrmp, skyramp:srmp, extra_lr_decay_factor:edf}) 
+        time_check += (time.time() - t0)
 
         # if we are in a report iteration extract cost function values
         if i % params['report_interval'] == 0 and i > 0:
 
             # get training loss
-            cost, kl, AB_batch, lr = session.run([cost_R, KL, r1_weight, learning_rate], feed_dict={bs_ph:bs, x_ph:next_x_data, y_ph:next_y_data, ramp:rmp, extra_lr_decay_factor:edf})
+            cost, kl, AB_batch, lr, test = session.run([cost_R, KL, r1_probs, learning_rate, r1_probs], feed_dict={bs_ph:bs, x_ph:next_x_data, y_ph:next_y_data, ramp:rmp, wramp:wrmp, skyramp:srmp, extra_lr_decay_factor:edf})
 
             # Make noise realizations and add to training data
             val_next_indices = val_indices_generator.next_indices()
             next_x_data_val = x_data_val[val_next_indices,:]
-            if n_conv_r1 != None:
-                next_y_data_val = y_data_val.reshape(valsize,int(params['ndata']),len(params['det']))[val_next_indices,:] + np.random.normal(0,1.0,size=(params['batch_size'],int(params['ndata']),len(params['det'])))
-            else:
-                next_y_data_val = y_data_val.reshape(valsize,int(params['ndata'])*len(params['det']))[val_next_indices,:] + np.random.normal(0,1.0,size=(params['batch_size'],int(params['ndata']*len(params['det']))))
+            next_y_data_val = y_data_val[val_next_indices,:] #.reshape(valsize,int(params['ndata']),len(params['det']))[val_next_indices,:]
             next_y_data_val /= y_normscale
 
-            #plt.figure()
-            #plt.plot(next_y_data[0,:,0],label='train')
-            #plt.plot(y_data[next_indices[0],:,0],label='train-sig')
-            #plt.plot(new_y_data_val[0,:,0],label='val')
-            #plt.plot(y_data_val[0,:,0],label='val-sig')
-            #plt.savefig('/data/www.astro/chrism/vitamin_results/chris_tiny_model/waveforms.png')
-            #plt.close()
-            #exit(0)
-
             # Get validation cost
-            cost_val, kl_val = session.run([cost_R, KL], feed_dict={bs_ph:bs, x_ph:next_x_data_val, y_ph:next_y_data_val, ramp:rmp, extra_lr_decay_factor:edf})
+            cost_val, kl_val = session.run([cost_R, KL], feed_dict={bs_ph:bs, x_ph:next_x_data_val, y_ph:next_y_data_val, ramp:rmp, wramp:wrmp, skyramp:srmp, extra_lr_decay_factor:edf})
             plotdata.append([cost,kl,cost+kl,cost_val,kl_val,cost_val+kl_val])
-          
+
             try:
                 # Make loss plot
                 plt.figure()
@@ -796,16 +834,17 @@ def train(params, x_data, y_data, x_data_val, y_data_val, x_data_test, y_data_te
                 print('Validation KL Divergence:',kl_val)
                 print('Training Total cost:',kl + cost) 
                 print('Validation Total cost:',kl_val + cost_val)
-                #print('Training regularisation cost:',reg)
-                #print('Validation regularisation cost:',reg_val)
                 print('Learning rate:',lr)
-                #print('Weight ramp index:',wr)
-                #print('weight shape:',AB_batch.shape)
-                #print('ramps are {}, {}, {}'.format(rmp,rmp2,rmp3))
+                print('ramp:',rmp)
+                print('sky ramp:',srmp)
+                print('r1 weight ramp:',wrmp)
+                print('train-time:',time_check)
+                time_check = 0.0
+
                 print()
               
                 # terminate training if vanishing gradient
-                if np.isnan(kl+cost) == True: #  or np.isnan(kl_val+cost_val) == True: # or kl+cost > int(1e5):
+                if np.isnan(kl+cost) == True:
                     print()
                     print('Network is returning NaN values')
                     print('Terminating network training')
@@ -825,42 +864,97 @@ def train(params, x_data, y_data, x_data_val, y_data_val, x_data_test, y_data_te
         if i % params['plot_interval'] == 0 and i>0:
 
             # just run the network on the test data
+            kltemp = []
             for j in range(params['r']):
 
                 # The trained inverse model weights can then be used to infer a probability density of solutions given new measurements
                 if params['n_filters_r1'] != None:
-                    XS, dt, _, zsamp  = run(params, y_data_test[j].reshape([1,y_data_test.shape[1],y_data_test.shape[2]]), np.shape(x_data_test)[1],save_dir)
+                    XS, dt, _, zsamp, qzsamp, wgt, qwgt, zloc  = run(params, x_data_test[j], y_data_test[j].reshape([1,y_data_test.shape[1],y_data_test.shape[2]]), save_dir,wrmp=wrmp)
                 else:
-                    XS, dt, _, zsamp  = run(params, y_data_test[j].reshape([1,-1]), np.shape(x_data_test)[1],save_dir)
+                    XS, dt, _, zsamp, qzsamp, wgt, qwgt, zloc  = run(params, x_data_test[j], y_data_test[j].reshape([1,-1]),save_dir,wrmp=wrmp)
                 print('...... Runtime to generate {} samples = {} sec'.format(params['n_samples'],dt))            
 
+                # plot the r1 weights
+                plt.figure()
+                norm_wgt = np.exp(wgt[0,:]-np.max(wgt[0,:]))
+                norm_wgt /= np.sum(norm_wgt)
+                plt.bar(np.arange(params['n_modes']),norm_wgt,width=1.0)
+                plt.ylim([0,1])
+                plt.xlabel('mode')
+                plt.ylabel('mode weight')
+                plt.savefig('%s/r1_weight_plot_%s_%d-%d.png' % (params['plot_dir'],params['run_label'],i,j))
+                print('...... Saved r1 weight plot iteration %d to -> %s/r1_weight_plot_%s_%d-%d.png' % (i,params['plot_dir'],params['run_label'],i,j))
+                plt.savefig('%s/latest_%s/r1_weight_plot_%s_%d.png' % (params['plot_dir'],params['run_label'],params['run_label'],j))
+                print('...... Saved latest r1 weight plot to -> %s/latest_%s/r1_weight_plot_%s_%d.png' % (params['plot_dir'],params['run_label'],params['run_label'],j))
+                plt.close('all')
+
+                # plot the q weights
+                plt.figure()
+                norm_qwgt = np.exp(qwgt[0,:]-np.max(qwgt[0,:]))
+                norm_qwgt /= np.sum(norm_qwgt)
+                plt.bar(np.arange(params['n_modes_q']),norm_qwgt,width=1.0)
+                plt.ylim([0,1])
+                plt.xlabel('mode')
+                plt.ylabel('mode weight')
+                plt.savefig('%s/q_weight_plot_%s_%d-%d.png' % (params['plot_dir'],params['run_label'],i,j))
+                print('...... Saved q weight plot iteration %d to -> %s/r1_weight_plot_%s_%d-%d.png' % (i,params['plot_dir'],params['run_label'],i,j))
+                plt.savefig('%s/latest_%s/q_weight_plot_%s_%d.png' % (params['plot_dir'],params['run_label'],params['run_label'],j))
+                print('...... Saved latest q weight plot to -> %s/latest_%s/q_weight_plot_%s_%d.png' % (params['plot_dir'],params['run_label'],params['run_label'],j))
+                plt.close('all')
+
                 # unnormalize and get gps time
-                true_post = np.copy(posterior_truth_test[j])
-                true_x = np.copy(x_data_test[j,:])
+                extra = 'test'
+                #true_post = np.copy(posterior_truth_test[j])
+                #true_x = np.copy(x_data_test[j,:])
+                true_post = np.zeros([XS.shape[0],bilby_ol_len])
+                true_x = np.zeros(inf_ol_len)
+                true_XS = np.zeros([XS.shape[0],inf_ol_len])
+                ol_pars = []
+                cnt = 0
+                for inf_idx,bilby_idx in zip(inf_ol_idx,bilby_ol_idx):
+                    inf_par = params['inf_pars'][inf_idx]
+                    bilby_par = params['bilby_pars'][bilby_idx]
+                    print(inf_par,bilby_par)
+                    true_XS[:,cnt] = (XS[:,inf_idx] * (bounds[inf_par+'_max'] - bounds[inf_par+'_min'])) + bounds[inf_par+'_min']
+                    true_post[:,cnt] = (posterior_truth_test[j,:,bilby_idx] * (bounds[bilby_par+'_max'] - bounds[bilby_par+'_min'])) + bounds[bilby_par + '_min']
+                    true_x[cnt] = (x_data_test[j,inf_idx] * (bounds[inf_par+'_max'] - bounds[inf_par+'_min'])) + bounds[inf_par + '_min']
+                    ol_pars.append(inf_par)
+                    cnt += 1
+
+                # un-normalise full inference parameters
+                full_true_x = np.zeros(len(params['inf_pars']))
                 for inf_par_idx,inf_par in enumerate(params['inf_pars']):
                     XS[:,inf_par_idx] = (XS[:,inf_par_idx] * (bounds[inf_par+'_max'] - bounds[inf_par+'_min'])) + bounds[inf_par+'_min']
-                    true_post[:,inf_par_idx] = (true_post[:,inf_par_idx] * (bounds[inf_par+'_max'] - bounds[inf_par+'_min'])) + bounds[inf_par + '_min']
-                    true_x[inf_par_idx] = (true_x[inf_par_idx] * (bounds[inf_par+'_max'] - bounds[inf_par+'_min'])) + bounds[inf_par + '_min']
+                    full_true_x[inf_par_idx] = (x_data_test[j,inf_par_idx] * (bounds[inf_par+'_max'] - bounds[inf_par+'_min'])) + bounds[inf_par + '_min']
+
+                # convert to RA
+                XS = convert_hour_angle_to_ra(XS,params,params['inf_pars'])
+                true_XS = convert_hour_angle_to_ra(true_XS,params,ol_pars)
+                print(true_x,true_x.shape)
+                full_true_x = convert_hour_angle_to_ra(np.reshape(full_true_x,[1,XS.shape[1]]),params,params['inf_pars']).flatten()
+                true_x = convert_hour_angle_to_ra(np.reshape(true_x,[1,true_XS.shape[1]]),params,ol_pars).flatten() 
+                print(true_x,true_x.shape)
 
                 # convert to RA
                 XS = convert_hour_angle_to_ra(XS,params)
 
                 # compute KL estimate
-                idx1 = np.random.randint(0,XS.shape[0],1000)
+                idx1 = np.random.randint(0,true_XS.shape[0],1000)
                 idx2 = np.random.randint(0,true_post.shape[0],1000)
                 print('...... computing the KL divergence')
                 run_startt = time.time()
-                KLest = estimate(XS[idx1,:],true_post[idx2,:])
+                KLest = estimate(true_XS[idx1,:],true_post[idx2,:])
                 run_endt = time.time()
+                kltemp.append(KLest)
                 print('...... the KL is {}'.format(KLest))
                 print('...... KL calculation time = {}'.format(run_endt-run_startt))
 
                 KLbs = []
                 run_startt = time.time()
                 for k in range(25):
-                    idx1 = np.random.randint(0,XS.shape[0],100)
+                    idx1 = np.random.randint(0,true_XS.shape[0],100)
                     idx2 = np.random.randint(0,true_post.shape[0],100)
-                    KLbs.append(estimate(XS[idx1,:],true_post[idx2,:]))
+                    KLbs.append(estimate(true_XS[idx1,:],true_post[idx2,:]))
                 KLbs_mu = np.mean(KLbs)
                 KLbs_sig = np.std(KLbs)
                 run_endt = time.time()
@@ -873,6 +967,10 @@ def train(params, x_data, y_data, x_data_val, y_data_val, x_data_test, y_data_te
                 for k_idx,k in enumerate(params['rand_pars']):
                     if np.isin(k, params['inf_pars']):
                         parnames.append(params['corner_labels'][k])
+                ol_parnames = []
+                for k_idx,k in enumerate(params['rand_pars']):
+                    if np.isin(k, ol_pars):
+                        ol_parnames.append(params['corner_labels'][k])
 
                 # define general plotting arguments
                 defaults_kwargs = dict(
@@ -886,39 +984,85 @@ def train(params, x_data, y_data, x_data_val, y_data_val, x_data_test, y_data_te
                 # 1-d hist kwargs for normalisation
                 hist_kwargs_A = dict(density=True,color='tab:blue')
                 hist_kwargs_B = dict(density=True,color='tab:red')
-
+ 
+                #try:
                 # make corner plot
                 if params['pe_dir']==None:
-                    figure = corner.corner(XS,**defaults_kwargs,labels=parnames,
+                    figure = corner.corner(true_XS,**defaults_kwargs,labels=ol_parnames,
                            color='tab:red',
                            fill_contours=True, truths=true_x,
                            show_titles=True, hist_kwargs=hist_kwargs_B)
                 else:
-                    figure = corner.corner(true_post, **defaults_kwargs,labels=parnames,
+                    figure = corner.corner(true_post, **defaults_kwargs,labels=ol_parnames,
                            color='tab:blue',
                            show_titles=True, hist_kwargs=hist_kwargs_A)
-                    corner.corner(XS,**defaults_kwargs,labels=parnames,
+                    corner.corner(true_XS,**defaults_kwargs,
                            color='tab:red',
                            fill_contours=True, truths=true_x,
                            show_titles=True, fig=figure, hist_kwargs=hist_kwargs_B)
                 plt.annotate('KL = {:.3f} ({:.3f} +/- {:.3f})'.format(KLest,KLbs_mu,KLbs_sig),(0.65,0.85),xycoords='figure fraction')
 
                 # save plot to file and output info
-                plt.savefig('%s/corner_plot_%s_%d-%d.png' % (params['plot_dir'],params['run_label'],i,j))
-                print('...... Saved corner plot iteration %d to -> %s/corner_plot_%s_%d-%d.png' % (i,params['plot_dir'],params['run_label'],i,j))
-                plt.savefig('%s/latest_%s/corner_plot_%s_%d.png' % (params['plot_dir'],params['run_label'],params['run_label'],j))
-                print('...... Saved latest corner plot to -> %s/latest_%s/corner_plot_%s_%d.png' % (params['plot_dir'],params['run_label'],params['run_label'],j))
+                plt.savefig('%s/corner_plot_%s_%d-%d_%s.png' % (params['plot_dir'],params['run_label'],i,j,extra))
+                print('...... Saved corner plot iteration %d to -> %s/corner_plot_%s_%d-%d_%s.png' % (i,params['plot_dir'],params['run_label'],i,j,extra))
+                plt.savefig('%s/latest_%s/corner_plot_%s_%d_%s.png' % (params['plot_dir'],params['run_label'],params['run_label'],j,extra))
+                print('...... Saved latest corner plot to -> %s/latest_%s/corner_plot_%s_%d_%s.png' % (params['plot_dir'],params['run_label'],params['run_label'],j,extra))
                 plt.close('all')
                 print('...... Made corner plot %d' % j)
 
-                # plot zsamples distribution
-                figure = corner.corner(zsamp,**defaults_kwargs,fill_contours=True)
-                plt.savefig('%s/z_corner_plot_%s_%d-%d.png' % (params['plot_dir'],params['run_label'],i,j))
-                print('...... Saved z_corner plot iteration %d to -> %s/z_corner_plot_%s_%d-%d.png' % (i,params['plot_dir'],params['run_label'],i,j))
-                plt.savefig('%s/latest_%s/z_corner_plot_%s_%d.png' % (params['plot_dir'],params['run_label'],params['run_label'],j))
-                print('...... Saved latest z_corner plot to -> %s/latest_%s/z_corner_plot_%s_%d.png' % (params['plot_dir'],params['run_label'],params['run_label'],j))
+                figure = corner.corner(XS,**defaults_kwargs, labels=parnames,
+                           color='tab:red',
+                           fill_contours=True, truths=full_true_x,
+                           show_titles=True, hist_kwargs=hist_kwargs_B)
+
+                # save plot to file and output info
+                plt.savefig('%s/full_corner_plot_%s_%d-%d_%s.png' % (params['plot_dir'],params['run_label'],i,j,extra))
+                print('...... Saved full corner plot iteration %d to -> %s/full_corner_plot_%s_%d-%d_%s.png' % (i,params['plot_dir'],params['run_label'],i,j,extra))
+                plt.savefig('%s/latest_%s/full_corner_plot_%s_%d_%s.png' % (params['plot_dir'],params['run_label'],params['run_label'],j,extra))
+                print('...... Saved latest full corner plot to -> %s/latest_%s/full_corner_plot_%s_%d_%s.png' % (params['plot_dir'],params['run_label'],params['run_label'],j,extra))
                 plt.close('all')
-                print('...... Made z corner plot %d' % j)
+                print('...... Made full corner plot %d' % j)
+
+                # plot zsamples distribution
+                try:
+                    figure = corner.corner(qzsamp,**defaults_kwargs,
+                           color='tab:blue',
+                           hist_kwargs=hist_kwargs_A)
+                    corner.corner(zsamp,**defaults_kwargs,
+                           color='tab:red',
+                           fill_contours=True,
+                           fig=figure, hist_kwargs=hist_kwargs_B)
+                    # Extract the axes
+                    axes = np.array(figure.axes).reshape((z_dimension, z_dimension))
+
+                    # Loop over the histograms
+                    for yi in range(z_dimension):
+                        for xi in range(yi):
+                            ax = axes[yi, xi]
+                            ax.plot(zloc[0,:,xi], zloc[0,:,yi], "sg")
+                
+                    plt.savefig('%s/z_corner_plot_%s_%d-%d_%s.png' % (params['plot_dir'],params['run_label'],i,j,extra))
+                    print('...... Saved z_corner plot iteration %d to -> %s/z_corner_plot_%s_%d-%d_%s.png' % (i,params['plot_dir'],params['run_label'],i,j,extra))
+                    plt.savefig('%s/latest_%s/z_corner_plot_%s_%d_%s.png' % (params['plot_dir'],params['run_label'],params['run_label'],j,extra))
+                    print('...... Saved latest z_corner plot to -> %s/latest_%s/z_corner_plot_%s_%d_%s.png' % (params['plot_dir'],params['run_label'],params['run_label'],j,extra))
+                    plt.close('all')
+                    print('...... Made z corner plot %d' % j)
+                except:
+                    pass
+
+            # plot KL data
+            kldata.append(kltemp)
+            klxaxis.append(i)
+            plt.figure()
+            for j in range(params['r']): 
+                plt.plot(klxaxis,np.array(kldata).reshape(-1,params['r'])[:,j])
+            plt.ylim([-0.2,1.0])
+            plt.xlabel('iteration')
+            plt.ylabel('KL')
+            plt.savefig('%s/latest_%s/kl_%s.png' % (params['plot_dir'],params['run_label'],params['run_label']))
+            print('...... Saved kl plot %d to -> %s/latest_%s/kl_%s.png' % (i,params['plot_dir'],params['run_label'],params['run_label']))
+            plt.close('all')
+
 
     return            
 

@@ -284,7 +284,7 @@ def load_data(params,bounds,fixed_vals,input_dir,inf_pars,test_data=False):
     all_par = np.copy(data['x_data'])
 
     # convert ra to hour angle for training data only
-    data['x_data'] = convert_ra_to_hour_angle(data['x_data'], params, rand_pars=True)
+    data['x_data'] = convert_ra_to_hour_angle(data['x_data'], params, params['rand_pars'])
 
     # Normalise the source parameters np.remainder(blah,np.pi)
     print(data['x_data'][0,:])
@@ -591,8 +591,9 @@ def train(params=params,bounds=bounds,fixed_vals=fixed_vals,resume_training=Fals
         fixed_vals = json.load(fp)
 
     # if doing hour angle, use hour angle bounds on RA
-    bounds['ra_min'] = convert_ra_to_hour_angle(bounds['ra_min'],params,single=True)
-    bounds['ra_max'] = convert_ra_to_hour_angle(bounds['ra_max'],params,single=True)
+    bounds['ra_min'] = convert_ra_to_hour_angle(bounds['ra_min'],params,None,single=True)
+    bounds['ra_max'] = convert_ra_to_hour_angle(bounds['ra_max'],params,None,single=True)
+
     print('... converted RA bounds to hour angle')
 
     # define which gpu to use during training
@@ -667,13 +668,11 @@ def train(params=params,bounds=bounds,fixed_vals=fixed_vals,resume_training=Fals
             n = 0
        
             # Retrieve all source parameters to do inference on
-            for q in params['inf_pars']:
+            for q in params['bilby_pars']:
                  p = q + '_post'
                  par_min = q + '_min'
                  par_max = q + '_max'
                  data_temp[p] = h5py.File(filename, 'r')[p][:]
-                 if p == 'psi_post':
-                     data_temp[p] = np.remainder(data_temp[p],np.pi)
                  if p == 'geocent_time_post':
                      data_temp[p] = data_temp[p] - params['ref_geocent_time']
                  data_temp[p] = (data_temp[p] - bounds[par_min]) / (bounds[par_max] - bounds[par_min])
@@ -696,7 +695,6 @@ def train(params=params,bounds=bounds,fixed_vals=fixed_vals,resume_training=Fals
             else:
                 XS_all = np.vstack((XS_all,np.expand_dims(XS[rand_idx_posterior,:], axis=0)))
             print('... appended {} samples to the total'.format(params['n_samples']))
-
 
     # Set posterior samples to None if posteriors don't exist
     elif params['pe_dir'] == None:
@@ -730,6 +728,18 @@ def train(params=params,bounds=bounds,fixed_vals=fixed_vals,resume_training=Fals
         y_data_val = y_data_val_copy
         print('... converted the data into channels-last format')
     
+    #plt.figure()
+    #for i in range(1):
+    #    for j in range(3):
+    #        plt.plot(y_data_train[i,:,j])
+    #plt.savefig('/data/www.astro/chrism/vitamin_results/training_data.png')
+    #plt.figure()
+    #for i in range(1):
+    #    for j in range(3):
+    #        plt.plot(y_data_val[i,:,j])
+    #plt.savefig('/data/www.astro/chrism/vitamin_results/validation_data.png')   
+    #plt.close('all')
+
     # finally train the model
     CVAE_model.train(params, x_data_train, y_data_train,
                                  x_data_val, y_data_val,
@@ -830,6 +840,7 @@ def test(params=params,bounds=bounds,fixed_vals=fixed_vals,use_gpu=False):
             if len(filenames) < num_finished_post:
                 sampler_loc = i + str(j+1)
                 num_finished_post = len(filenames)
+
 
 
     # Assert user has the minimum number of test samples generated
