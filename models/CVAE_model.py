@@ -20,7 +20,6 @@ from universal_divergence import estimate
 from .neural_networks import VI_decoder_r2
 from .neural_networks import VI_encoder_r1
 from .neural_networks import VI_encoder_q
-from .neural_networks import VI_rnn
 from .neural_networks import batch_manager
 try:
     from .. import gen_benchmark_pe

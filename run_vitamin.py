@@ -802,8 +802,11 @@ def test(params=params,bounds=bounds,fixed_vals=fixed_vals,use_gpu=False):
 
     y_normscale = params['y_normscale']
 
-    # load the testing data time series and source parameter truths
-    x_data_test, y_data_test_noisefree, y_data_test,_,snrs_test,imp_info = load_data(params,bounds,fixed_vals,params['test_set_dir'],params['inf_pars'],load_condor=False)
+    # load the noisy testing data back in
+    x_data_test, y_data_test_noisefree, y_data_test, snrs_test = load_data(params,bounds,fixed_vals,params['test_set_dir'],params['inf_pars'],test_data=True)
+    print('... loaded in the testing data')
+    for x in x_data_test:
+        print(x)
 
     # Make directory to store plots
     os.system('mkdir -p %s/latest_%s' % (params['plot_dir'],params['run_label']))
