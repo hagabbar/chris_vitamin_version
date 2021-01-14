@@ -79,20 +79,20 @@ y_normscale = 36.0
 ##########################
 # Main tunable variables
 ##########################
-ndata = 256                                                                     
+ndata = 1024                                                                     
 det=['H1','L1','V1']                                                            
 psd_files=[] 
-#rand_pars = ['mass_1','mass_2','luminosity_distance','geocent_time','phase',
-#                 'theta_jn','psi','a_1','a_2','tilt_1','tilt_2','phi_12','phi_jl','ra','dec']                                   
-#inf_pars=['mass_1','mass_2','luminosity_distance','geocent_time','theta_jn','a_1','a_2','tilt_1','tilt_2','phi_12','phi_jl','ra','dec'] 
 rand_pars = ['mass_1','mass_2','luminosity_distance','geocent_time','phase',
-                 'theta_jn','psi','ra','dec']
-inf_pars=['mass_1','mass_2','luminosity_distance','geocent_time','theta_jn','ra','dec']
-batch_size = 512                                                                 
+                 'theta_jn','psi','a_1','a_2','tilt_1','tilt_2','phi_12','phi_jl','ra','dec']                                   
+inf_pars=['mass_1','mass_2','luminosity_distance','geocent_time','theta_jn','a_1','a_2','tilt_1','tilt_2','phi_12','phi_jl','ra','dec'] 
+#rand_pars = ['mass_1','mass_2','luminosity_distance','geocent_time','phase',
+#                 'theta_jn','psi','ra','dec']
+#inf_pars=['mass_1','mass_2','luminosity_distance','geocent_time','theta_jn','ra','dec']
+batch_size = 8                                                                 
 weight_init = 'xavier'                                                            
-n_modes=16                                                                      
+n_modes=16; n_modes_q=1                                                                      
 initial_training_rate=1e-4                                                     
-batch_norm=True                                                                
+batch_norm=False                                                                
 
 # FYI, each item in lists below correspond to each layer in networks (i.e. first item first layer)
 # pool size and pool stride should be same number in each layer
@@ -105,15 +105,18 @@ filter_size_q = [5,8,11]
 drate = 0.2                                                                    
 maxpool_r1 = [1,2,1]                                                             
 conv_strides_r1 = [1,1,1]                                                        
-pool_strides_r1 = [1,2,1]                                                        
+pool_strides_r1 = [1,2,1]
+conv_dilations_r1=[1,1,1]                                                        
 maxpool_r2 = [1,2,1]                                                             
 conv_strides_r2 = [1,1,1]                                                        
-pool_strides_r2 = [1,2,1]                                                        
+pool_strides_r2 = [1,2,1]
+conv_dilations_r2=[1,1,1]                                                        
 maxpool_q = [1,2,1]                                                              
 conv_strides_q = [1,1,1]                                                         
-pool_strides_q = [1,2,1]                                                         
+pool_strides_q = [1,2,1] 
+conv_dilations_q=[1,1,1]                                                        
 n_fc = 1024                                                                      
-z_dimension=10                                                                  
+z_dimension=13                                                                  
 n_weights_r1 = [n_fc,n_fc]                                                     
 n_weights_r2 = [n_fc,n_fc]                                                     
 n_weights_q = [n_fc,n_fc]                                                      
@@ -124,35 +127,31 @@ n_weights_q = [n_fc,n_fc]
 #############################
 # optional tunable variables
 #############################
-run_label = 'public_model'#'demo_%ddet_%dpar_%dHz_hour_angle_with_late_kl_start' % (len(det),len(rand_pars),ndata) 
+run_label = 'test_make_params_file'#'demo_%ddet_%dpar_%dHz_hour_angle_with_late_kl_start' % (len(det),len(rand_pars),ndata) 
 
 # 1024 Hz label
 #bilby_results_label = 'weichangfeng_theta_jn_issue'                                             
 # 256 Hz label
-bilby_results_label = 'all_4_samplers'
+bilby_results_label = '1024Hz_full_15par'
 
 r = 1                                                          
 pe_test_num = 256                                                               
 tot_dataset_size = int(1e7)                                                     
 tset_split = int(1e3)                                                           
-save_interval = int(2e4)                                                        
+save_interval = int(2e3)                                                        
 num_iterations=int(1e6)+1                                                       
 ref_geocent_time=1126259642.5                                                   
-load_chunk_size = 2e5                                                           
+load_chunk_size = 2e3                                                           
 samplers=['vitamin','dynesty']                                                  
 
 # Directory variables
 plot_dir="./results/%s" % run_label  
 
 # Training/testing for 1024 Hz full par case
-train_set_dir='./training_sets_%ddet_%dpar_%dHz/tset_tot-%d_split-%d' % (len(det),len(rand_pars),ndata,1000000,tset_split)
-#test_set_dir = './test_sets/1024_khz_spins_included_15par/test_waveforms'
-#pe_dir='./test_sets/1024_khz_spins_included_15par/test'
-
-# training/testing for 256 Hz case
-#train_set_dir = '/home/hunter.gabbard/CBC/VItamin/training_sets_second_sub_3det_9par_256Hz/tset_tot-10000000_split-1000/'
-test_set_dir = './test_sets/all_4_samplers/test_waveforms'
-pe_dir='./test_sets/all_4_samplers/test'
+train_set_dir='/home/hunter.gabbard/CBC/public_VItamin/provided_models/vitamin_b/vitamin_b/training_sets_3det_15par_1024Hz/tset_tot-10000000_split-1000_O4PSDH1L1_AdvVirgoPSD'
+val_set_dir='./validation_sets_3det_15par_1024Hz/tset_tot-1000_split-1000'
+test_set_dir = '/home/hunter.gabbard/CBC/public_VItamin/provided_models/vitamin_b/vitamin_b/test_sets/1024_khz_spins_included_15par/test_waveforms'
+pe_dir='/home/hunter.gabbard/CBC/public_VItamin/provided_models/vitamin_b/vitamin_b/test_sets/1024_khz_spins_included_15par/test'
 #############################
 # optional tunable variables
 
@@ -161,6 +160,20 @@ def get_params():
 
     # Define dictionary to store values used in rest of code 
     params = dict(
+        extra_lr_decay_factor=False,
+        __definition__extra_decay_factor='Use an extra decay factor of 0.96 after every load iteration',
+        n_KLzsamp=1,
+        __definition_n_KLzsamp='The number of samples to use to perfrom MonteCarlo integration over z to compute the KL',
+        twod_conv=False,
+        __definition__twod_conv='if true treat the detectors as an extra image dimension otherwise as channels',
+        n_modes_q=n_modes_q,
+        __definition__n_modes_q='number of modes in Gaussian mixture model for the q distribution',
+        conv_dilations_r1=conv_dilations_r1,
+        __definition__conv_dilations_r1='size of convolutional dilation to use in r1 network',
+        conv_dilations_r2=conv_dilations_r2,
+        __definition__conv_dilations_r2='size of convolutional dilation to use in r2 network',
+        conv_dilations_q=conv_dilations_q,
+        __definition__conv_dilations_q='size of convolutional dilation to use in q network', 
         hour_angle_range=[-3.813467684252483,2.469671758574231],
         __definition__hour_angle_range='min and max range of hour angle space',
         use_real_det_noise=False,
@@ -191,7 +204,6 @@ def get_params():
         __definition__print_values='# optionally print loss values every report interval',
         by_channel = True,                                                      
         __definition__by_channel='if True, do convolutions as seperate 1-D channels, if False, stack training samples as 2-D images (n_detectors,(duration*sampling_frequency))',
-        load_plotmartin_shape_error_data=False,                                                   
         load_plot_data = False,
         __definition__load_plot_data='Use plotting data which has already been generated',
         doPE = True,                                                            
@@ -321,6 +333,8 @@ def get_params():
         __definition__inf_pars='parameters to infer',                                              
         train_set_dir=train_set_dir,
         __definition__train_set_dir='location of training set directory',
+        val_set_dir=val_set_dir,
+        __definition__val_set_dir='location of validation set directory',
         test_set_dir=test_set_dir,
         __definition__test_set_dir='location of test set directory waveforms',
         pe_dir=pe_dir,

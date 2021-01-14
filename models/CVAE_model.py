@@ -27,7 +27,7 @@ try:
     from .neural_networks.vae_utils import convert_ra_to_hour_angle, convert_hour_angle_to_ra
 except Exception as e:
     import gen_benchmark_pe
-    from models.neural_networks.vae_utils import convert_ra_to_hour_angle
+    from models.neural_networks.vae_utils import convert_ra_to_hour_angle, convert_hour_angle_to_ra
 
 import matplotlib
 matplotlib.use('Agg')
@@ -503,8 +503,8 @@ def train(params, x_data, y_data, x_data_val, y_data_val, x_data_test, y_data_te
     m2_mask, m2_idx_mask, m2_len = get_param_index(params['inf_pars'],['mass_2'])
     idx_mask = np.argsort(gauss_idx_mask + vonmise_idx_mask + m1_idx_mask + m2_idx_mask + sky_idx_mask)
 
-    inf_ol_mask, inf_ol_idx, inf_ol_len = get_param_index(params['inf_pars'],params['bilby_pars'])
-    bilby_ol_mask, bilby_ol_idx, bilby_ol_len = get_param_index(params['bilby_pars'],params['inf_pars'])
+    inf_ol_mask, inf_ol_idx, inf_ol_len = get_param_index(params['inf_pars'],params['inf_pars'])
+    bilby_ol_mask, bilby_ol_idx, bilby_ol_len = get_param_index(params['inf_pars'],params['inf_pars'])
 
     graph = tf.Graph()
     session = tf.Session(graph=graph)
@@ -692,10 +692,9 @@ def train(params, x_data, y_data, x_data_val, y_data_val, x_data_test, y_data_te
         update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)                            
         with tf.control_dependencies(update_ops):                                                            
             optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate)
-            #gvs = optimizer.compute_gradients(COST)
-            #capped_gvs = [(tf.clip_by_norm(grad, 1.0), var) for grad, var in gvs]
-            #minimize = optimizer.apply_gradients(capped_gvs)
-            minimize = optimizer.minimize(COST,var_list = var_list_VICI, global_step=global_step)
+            gvs = optimizer.compute_gradients(COST, var_list=var_list_VICI)
+            capped_gvs = [(tf.clip_by_value(grad, -100, 100.0), var) for grad, var in gvs]
+            minimize = optimizer.apply_gradients(capped_gvs, global_step=global_step)
 
         # INITIALISE AND RUN SESSION
         init = tf.global_variables_initializer()
@@ -717,6 +716,11 @@ def train(params, x_data, y_data, x_data_val, y_data_val, x_data_test, y_data_te
     time_check = 0.0
     load_chunk_it = 1
     for i in range(params['num_iterations']):
+
+        # restore session if wanted
+        if params['resume_training'] == True and i == 0:
+            print('... Loading previously trained model from -> ' + save_dir)
+            saver.restore(session, save_dir)
 
         # compute the ramp value
         rmp = 0.0
@@ -907,7 +911,7 @@ def train(params, x_data, y_data, x_data_val, y_data_val, x_data_test, y_data_te
                 cnt = 0
                 for inf_idx,bilby_idx in zip(inf_ol_idx,bilby_ol_idx):
                     inf_par = params['inf_pars'][inf_idx]
-                    bilby_par = params['bilby_pars'][bilby_idx]
+                    bilby_par = params['inf_pars'][bilby_idx]
                     print(inf_par,bilby_par)
                     true_XS[:,cnt] = (XS[:,inf_idx] * (bounds[inf_par+'_max'] - bounds[inf_par+'_min'])) + bounds[inf_par+'_min']
                     true_post[:,cnt] = (posterior_truth_test[j,:,bilby_idx] * (bounds[bilby_par+'_max'] - bounds[bilby_par+'_min'])) + bounds[bilby_par + '_min']

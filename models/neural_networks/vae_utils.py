@@ -29,6 +29,8 @@ def convert_ra_to_hour_angle(data, params, pars, single=False):
     data: array-like
         converted array of source parameter values
     """
+    return data
+
     print('...... Using hour angle conversion')
     greenwich = coord.EarthLocation.of_site('greenwich')
     t = Time(params['ref_geocent_time'], format='gps', location=greenwich)
@@ -80,6 +82,7 @@ def convert_hour_angle_to_ra(data, params, pars, single=False):
     data: array-like
         converted array of source parameter values
     """
+    return data
     print('...... Using hour angle conversion')
     greenwich = coord.EarthLocation.of_site('greenwich')
     t = Time(params['ref_geocent_time'], format='gps', location=greenwich)
