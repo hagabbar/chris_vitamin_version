@@ -233,7 +233,10 @@ def load_data(params,bounds,fixed_vals,input_dir,inf_pars,test_data=False):
         data={'x_data': [], 'y_data_noisefree': [], 'y_data_noisy': [], 'rand_pars': []}
     
     # Sort files from first generated to last generated
-    filenames = sorted(os.listdir(dataLocations[0]))
+    if not test_data:
+        filenames = sorted(os.listdir(dataLocations[0]))
+    else:
+        filenames = sorted(os.listdir('%s' % dataLocations[0]), key=lambda x: int(x.split('.')[0].split('_')[-1]))
 
     # Append training/testing filenames to list. Ignore those that can't be loaded
     snrs = []
@@ -269,8 +272,8 @@ def load_data(params,bounds,fixed_vals,input_dir,inf_pars,test_data=False):
         except OSError:
             print('Could not load requested file')
             continue
-    snrs = np.array(snrs)
 
+    snrs = np.array(snrs)
     # Extract the prior bounds from training/testing files
     data['x_data'] = np.concatenate(np.array(data['x_data']), axis=0).squeeze()
     data['y_data_noisefree'] = np.concatenate(np.array(data['y_data_noisefree']), axis=0)
@@ -649,7 +652,7 @@ def train(params=params,bounds=bounds,fixed_vals=fixed_vals,resume_training=Fals
     # load up the posterior samples (if they exist)
     if params['pe_dir'] != None:
         # load generated samples back in
-        dataLocations = '%s_%s' % (params['pe_dir'],params['samplers'][1])
+        dataLocations = '%s_%s' % (params['pe_dir'],params['samplers'][1]+'1')
         print('... looking in {} for posterior samples'.format(dataLocations))
 
         i_idx = 0
@@ -668,7 +671,7 @@ def train(params=params,bounds=bounds,fixed_vals=fixed_vals,resume_training=Fals
             n = 0
        
             # Retrieve all source parameters to do inference on
-            for q in params['bilby_pars']:
+            for q in params['inf_pars']:
                  p = q + '_post'
                  par_min = q + '_min'
                  par_max = q + '_max'
@@ -700,7 +703,6 @@ def train(params=params,bounds=bounds,fixed_vals=fixed_vals,resume_training=Fals
     elif params['pe_dir'] == None:
         XS_all = None
         print('... not using pre-computed samples')
-
     # reshape y data into channels last format for convolutional approach (if requested)
     if params['n_filters_r1'] != None:
         y_data_test_copy = np.zeros((y_data_test.shape[0],params['ndata'],len(params['det'])))
