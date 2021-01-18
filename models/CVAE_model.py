@@ -446,6 +446,9 @@ def train(params, x_data, y_data, x_data_val, y_data_val, x_data_test, y_data_te
         posterior from test Bayesian sampler analysis 
     """
 
+    # skyweighting test
+    skyweight=1.0
+
     # USEFUL SIZES
     y_normscale = params['y_normscale']
     xsh = np.shape(x_data)
@@ -662,7 +665,7 @@ def train(params, x_data, y_data, x_data_val, y_data_val, x_data_test, y_data_te
         else:
             reconstr_loss_sky = 0.0
 
-        cost_R = -1.0*tf.reduce_mean(reconstr_loss_gauss + reconstr_loss_vonmise + reconstr_loss_masses + skyramp*reconstr_loss_sky)
+        cost_R = -1.0*tf.reduce_mean(reconstr_loss_gauss + reconstr_loss_vonmise + reconstr_loss_masses + skyweight*skyramp*reconstr_loss_sky)
         #r2_xzy_mean = tf.gather(tf.concat([r2_xzy_mean_gauss,r2_xzy_mean_vonmise,r2_xzy_mean_m1,r2_xzy_mean_m2,r2_xzy_mean_sky],axis=1),tf.constant(idx_mask),axis=1)      # put the elements back in order
         #r2_xzy_scale = tf.gather(tf.concat([r2_xzy_log_sig_sq_gauss,r2_xzy_log_sig_sq_vonmise,r2_xzy_log_sig_sq_m1,r2_xzy_log_sig_sq_m2,r2_xzy_log_sig_sq_sky],axis=1),tf.constant(idx_mask),axis=1)   # put the elements back in order
         #r2_xzy_mean = tf.gather(tf.concat([r2_xzy_mean_gauss,r2_xzy_mean_vonmise,r2_xzy_mean_m1,r2_xzy_mean_m2],axis=1),tf.constant(idx_mask),axis=1)      # put the elements back in order
@@ -937,9 +940,6 @@ def train(params, x_data, y_data, x_data_val, y_data_val, x_data_test, y_data_te
                 full_true_x = convert_hour_angle_to_ra(np.reshape(full_true_x,[1,XS.shape[1]]),params,params['inf_pars']).flatten()
                 true_x = convert_hour_angle_to_ra(np.reshape(true_x,[1,true_XS.shape[1]]),params,ol_pars).flatten() 
                 print(true_x,true_x.shape)
-
-                # convert to RA
-                XS = convert_hour_angle_to_ra(XS,params)
 
                 # compute KL estimate
                 idx1 = np.random.randint(0,true_XS.shape[0],1000)

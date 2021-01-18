@@ -47,40 +47,52 @@ def prune_samples(chain_file_loc,params):
     nsteps = 14000
     nburnin = 4000
     nwalkers = 250
-    thresh_num = 50
+    thresh_num = 30
     ndim=len(params['inf_pars'])
     chain_file = h5py.File(chain_file_loc, 'r')
+    exit_flag=False
 
-    # Iterate over all parameters in chain file
-    XS = np.array([])
-    for idx in range(ndim):
-#        print(chain_file)
-#        print(params['inf_pars'][idx]+'_post')
-        chains_before = np.array(chain_file[params['inf_pars'][idx]+'_post']).reshape((nsteps-nburnin,nwalkers))
-        logL = np.array(chain_file['log_like_eval']).reshape((nsteps-nburnin,nwalkers))
-        logL_max = np.max(logL)
+    while exit_flag == False:
+        # Iterate over all parameters in chain file
+        XS = np.array([])
+        for idx in range(ndim):
+            chains_before = np.array(chain_file[params['inf_pars'][idx]+'_post']).reshape((nsteps-nburnin,nwalkers))
+            logL = np.array(chain_file['log_like_eval']).reshape((nsteps-nburnin,nwalkers))
+            logL_max = np.max(logL)
 
-        XS = np.append(XS,np.expand_dims(chains_before,0))
+            XS = np.append(XS,np.expand_dims(chains_before,0))
 
-    # data starts as (nsteps*nwalkers) x ndim -> 2D
-    XS = XS.transpose()                                     # now ndim x (nsteps*nwalkers) -> 2D
-    XS = XS.reshape(ndim,nwalkers,nsteps-nburnin)                      # now ndim x nwalkers x nsteps -> 3D
-    XSex = XS[:,0,:].squeeze().transpose()        # take one walker nsteps x ndim -> 2D
-    XS = XS.transpose((2,1,0))                          # now nsteps x nwalkers x ndim -> 3D
+        # data starts as (nsteps*nwalkers) x ndim -> 2D
+        XS = XS.transpose()                                     # now ndim x (nsteps*nwalkers) -> 2D
+        XS = XS.reshape(ndim,nwalkers,nsteps-nburnin)                      # now ndim x nwalkers x nsteps -> 3D
+        XSex = XS[:,0,:].squeeze().transpose()        # take one walker nsteps x ndim -> 2D
+        XS = XS.transpose((2,1,0))                          # now nsteps x nwalkers x ndim -> 3D
 
-    # identify good walkers
-    # logL starts off with shape (nsteps*nwalkers) -> 1D
-    thresh = logL_max - thresh_num                                # define log likelihood threshold
-    idx_walkers = np.argwhere([np.all(logL[:,i]>thresh) for i in range(nwalkers)])       # get the indices of good chains
-    Nsamp = len(idx_walkers)*(nsteps-nburnin)                                 # redefine total number of good samples 
+        # identify good walkers
+        # logL starts off with shape (nsteps*nwalkers) -> 1D
+        thresh = logL_max - thresh_num                                # define log likelihood threshold
+        idx_walkers = np.argwhere([np.all(logL[:,i]>thresh) for i in range(nwalkers)])       # get the indices of good chains
+        Nsamp = len(idx_walkers)*(nsteps-nburnin)                                 # redefine total number of good samples 
 
-    # select good walkers
-    XS = np.array([XS[:,i,:] for i in idx_walkers]).squeeze()     # just pick out good walkers
+        # select good walkers
+        XS = np.array([XS[:,i,:] for i in idx_walkers]).squeeze()     # just pick out good walkers
 
-    XS = XS.reshape(-1,ndim)                                    # now back to original shape (but different order) (walkers*nstep) x 
-    idx = np.random.choice(Nsamp,10000)          # choose 10000 random indices for corner plots
+        XS = XS.reshape(-1,ndim)                                    # now back to original shape (but different order) (walkers*nstep) x 
+        try:
+            #idx = np.random.choice(Nsamp,10000)          # choose 10000 random indices for corner plots
+            if Nsamp < params['n_samples']:
+                raise Exception
+            else:
+                rand_idx_posterior = np.linspace(0,Nsamp-1,num=params['n_samples'],dtype=np.int)
+                np.random.shuffle(rand_idx_posterior)
+                idx = rand_idx_posterior[:params['n_samples']]
+        except Exception:
+            thresh_num+=10
+            print('... increasing threshold value to %d' % thresh_num)
+        else:
+            exit_flag = True
 
-        # pick out random samples from clean set
+    # pick out random samples from clean set
     XS = XS[idx,:]                                                  # select 10000 random samples
 
     return XS
@@ -178,9 +190,9 @@ class make_plots:
                 VI_pred_all = []
                 for i in range(params['r']):
                     # The trained inverse model weights can then be used to infer a probability density of solutions given new measurements
-                    VI_pred,dt,_  = model.run(params, np.expand_dims(sig_test[i],axis=0), np.shape(par_test)[1],
-                                                             y_normscale,
-                                                             "inverse_model_dir_%s/inverse_model.ckpt" % params['run_label'])
+                    VI_pred,dt, _,_,_,_,_,_  = model.run(params, par_test[i], np.expand_dims(sig_test[i],axis=0),
+                                              "inverse_model_dir_%s/inverse_model.ckpt" % params['run_label'],
+                                              wrmp=np.ones(params['n_modes']))
 
                     """
                     # convert RA to hour angle for test set validation cost if both ra and geo time present
@@ -419,9 +431,9 @@ class make_plots:
                     y = sig_test[cnt,:].reshape(1,sig_test.shape[1])
                  # The trained inverse model weights can then be used to infer a probability density of solutions 
 #given new measurements
-                x, dt, _  = model.run(self.params, y, np.shape(par_test)[1],
-                                                     normscales,
-                                                     "inverse_model_dir_%s/inverse_model.ckpt" % self.params['run_label'])
+                x, dt, _,_,_,_,_,_  = model.run(self.params, par_test[cnt], y,
+                                                "inverse_model_dir_%s/inverse_model.ckpt" % self.params['run_label'],
+                                                wrmp=np.ones(self.params['n_modes']))
 
               
                 """ 
@@ -734,9 +746,13 @@ class make_plots:
                 set1 = set1.T
                 set2 = set2.T
                 for kl_idx in range(10):
-                    rand_idx_kl = np.random.choice(np.linspace(0,set1.shape[0]-1,dtype=np.int),size=100)
-                    rand_idx_kl_2 = np.random.choice(np.linspace(0,set2.shape[0]-1,dtype=np.int),size=100)
-                    kl_result.append(estimate(set1[rand_idx_kl,:],set2[rand_idx_kl_2,:]) + estimate(set2[rand_idx_kl_2,:],set1[rand_idx_kl,:]))
+                    rand_idx_kl = np.linspace(0,self.params['n_samples']-1,num=self.params['n_samples'],dtype=np.int)
+                    np.random.shuffle(rand_idx_kl)
+                    rand_idx_kl = rand_idx_kl[:100]
+                    rand_idx_kl_2 = np.linspace(0,self.params['n_samples']-1,num=self.params['n_samples'],dtype=np.int)
+                    np.random.shuffle(rand_idx_kl_2)
+                    rand_idx_kl_2 = rand_idx_kl_2[:100]
+                    kl_result.append(estimate(set1[rand_idx_kl,:],set2[rand_idx_kl_2,:],k=10,n_jobs=10) + estimate(set2[rand_idx_kl_2,:],set1[rand_idx_kl,:],k=10,n_jobs=10))
                 kl_result = np.mean(kl_result)
                 return kl_result
 
@@ -790,8 +806,6 @@ class make_plots:
         else:
             hf = h5py.File('plotting_data_%s/KL_plot_data.h5' % params['run_label'], 'r')
         
-
-            
         # 4 pannel KL approach
         fig_kl, axis_kl = plt.subplots(2,2,figsize=(8,6),sharey=True,sharex=True)
         for k in range(len(usesamps)-1):

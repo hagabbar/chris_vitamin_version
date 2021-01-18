@@ -9,6 +9,27 @@ from astropy import coordinates as coord
 from astropy.coordinates import SkyCoord, Angle
 from astropy import units as u
 
+def resblock(x_init, channels, is_training=True, use_bias=True, downsample=False, scope='resblock') :
+
+    with tf.variable_scope(scope) :
+
+        x = tf.nn.relu(x_init)
+        x = tf.layers.conv2d(inputs=x, filters=channels,
+                             kernel_size=3, kernel_initializer=tf.keras.initializers.VarianceScaling(),
+                             kernel_regularizer=tf.keras.regularizers.l2(0.0001),
+                             strides=1, use_bias=True, padding='SAME')
+
+
+        x = tf.nn.relu(x)
+
+        x = tf.layers.conv2d(inputs=x, filters=channels,
+                             kernel_size=3, kernel_initializer=tf.keras.initializers.VarianceScaling(),
+                             kernel_regularizer=tf.keras.regularizers.l2(0.0001),
+                             strides=1, use_bias=True, padding='SAME')
+
+
+        return x + x_init
+
 def convert_ra_to_hour_angle(data, params, pars, single=False):
     """
     Converts right ascension to hour angle and back again

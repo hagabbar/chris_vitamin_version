@@ -730,18 +730,6 @@ def train(params=params,bounds=bounds,fixed_vals=fixed_vals,resume_training=Fals
         y_data_val = y_data_val_copy
         print('... converted the data into channels-last format')
     
-    #plt.figure()
-    #for i in range(1):
-    #    for j in range(3):
-    #        plt.plot(y_data_train[i,:,j])
-    #plt.savefig('/data/www.astro/chrism/vitamin_results/training_data.png')
-    #plt.figure()
-    #for i in range(1):
-    #    for j in range(3):
-    #        plt.plot(y_data_val[i,:,j])
-    #plt.savefig('/data/www.astro/chrism/vitamin_results/validation_data.png')   
-    #plt.close('all')
-
     # finally train the model
     CVAE_model.train(params, x_data_train, y_data_train,
                                  x_data_val, y_data_val,
@@ -784,9 +772,8 @@ def test(params=params,bounds=bounds,fixed_vals=fixed_vals,use_gpu=False):
         fixed_vals = json.load(fp)
 
     # if doing hour angle, use hour angle bounds on RA
-    if params['convert_to_hour_angle']:
-        bounds['ra_min'] = params['hour_angle_range'][0]
-        bounds['ra_max'] = params['hour_angle_range'][1]
+    bounds['ra_min'] = convert_ra_to_hour_angle(bounds['ra_min'],params,None,single=True)
+    bounds['ra_max'] = convert_ra_to_hour_angle(bounds['ra_max'],params,None,single=True)
 
     if use_gpu == True:
         print("... GPU found")
@@ -992,29 +979,28 @@ def test(params=params,bounds=bounds,fixed_vals=fixed_vals,use_gpu=False):
         
         # Generate ML posteriors using pre-trained model
         if params['n_filters_r1'] != None: # for convolutional approach
-             VI_pred, dt, _  = CVAE_model.run(params, np.expand_dims(y_data_test[i],axis=0), np.shape(x_data_test)[1],
-                                                         y_normscale,
-                                                         "inverse_model_dir_%s/inverse_model.ckpt" % params['run_label'])
-        else:                                                          # for fully-connected approach
-            VI_pred, dt, _  = CVAE_model.run(params, y_data_test[i].reshape([1,-1]), np.shape(x_data_test)[1],
-                                                         y_normscale,
-                                                         "inverse_model_dir_%s/inverse_model.ckpt" % params['run_label'])
+             VI_pred, dt, _,_,_,_,_,_  = CVAE_model.run(params, x_data_test[i], np.expand_dims(y_data_test[i],axis=0),
+                                                         "inverse_model_dir_%s/inverse_model.ckpt" % params['run_label'],
+                                                         wrmp=np.ones(params['n_modes']))
+        else:                                                          
+            VI_pred, dt, _,_,_,_,_,_  = CVAE_model.run(params, x_data_test[i], y_data_test[i].reshape([1,-1]),
+                                                         "inverse_model_dir_%s/inverse_model.ckpt" % params['run_label'],
+                                                       wrmp=np.ones(params['n_modes']))
 
         # Make corner corner plots
-        bins=50
        
         # Define default corner plot arguments
         defaults_kwargs = dict(
-                    bins=bins, smooth=0.9, label_kwargs=dict(fontsize=16),
+                    bins=50, smooth=0.9, label_kwargs=dict(fontsize=16),
                     title_kwargs=dict(fontsize=16), show_titles=False,
-                    truth_color='black', quantiles=None,#[0.16, 0.84],
-                    levels=(0.50,0.90), density=True,
+                    truth_color='black', quantiles=[0.16, 0.84],
+                    levels=(0.68,0.90,0.95), density=True,
                     plot_density=False, plot_datapoints=True,
                     max_n_ticks=3)
 
         matplotlib.rc('text', usetex=True)                
         parnames = []
-    
+
         # Get infered parameter latex labels for corner plot
         for k_idx,k in enumerate(params['rand_pars']):
             if np.isin(k, params['inf_pars']):
@@ -1030,12 +1016,13 @@ def test(params=params,bounds=bounds,fixed_vals=fixed_vals,use_gpu=False):
                 VI_pred[:,q_idx] = (VI_pred[:,q_idx] * (bounds[par_max] - bounds[par_min])) + bounds[par_min]
 
         # Convert hour angle back to RA
-        VI_pred = convert_ra_to_hour_angle(VI_pred, params, rand_pars=False)
+#        VI_pred = convert_ra_to_hour_angle(VI_pred, params, rand_pars=False)
 
         # Apply importance sampling if wanted by user
         if args.importance_sampling:
             VI_pred = importance_sampling(fixed_vals, params, VI_pred, imp_info['all_par'][i], imp_info['file_IDs'][i])
 
+        """
         # Get allowed range values for all posterior samples
         max_min_samplers = dict(max = np.zeros((len(params['samplers']),len(params['inf_pars']))),
                                 min = np.zeros((len(params['samplers']),len(params['inf_pars'])))
@@ -1048,6 +1035,7 @@ def test(params=params,bounds=bounds,fixed_vals=fixed_vals,use_gpu=False):
                     max_min_samplers['max'][0,par_idx] = np.min(VI_pred[:,par_idx])
                     max_min_samplers['min'][0,par_idx] = np.max(VI_pred[:,par_idx])
         corner_range = [ (np.min(max_min_samplers['min'][:,par_idx]), np.max(max_min_samplers['max'][:,par_idx]) ) for par_idx in range(len(params['inf_pars']))]
+        """
 
         # Iterate over all Bayesian PE samplers and plot results
         custom_lines = []
@@ -1062,19 +1050,19 @@ def test(params=params,bounds=bounds,fixed_vals=fixed_vals,use_gpu=False):
             if samp_idx == 0:
                 figure = corner.corner(bilby_pred,**defaults_kwargs,labels=parnames,
                                color=color_cycle[samp_idx],
-                               truths=truths, range=corner_range
+                               truths=truths, hist_kwargs=dict(density=True,color=color_cycle[samp_idx])
                                )
             else:
                 figure = corner.corner(bilby_pred,**defaults_kwargs,labels=parnames,
                                color=color_cycle[samp_idx],
                                truths=truths,
-                               fig=figure, range=corner_range)
+                               fig=figure, hist_kwargs=dict(density=True,color=color_cycle[samp_idx]))
             custom_lines.append(Line2D([0], [0], color=legend_color_cycle[samp_idx], lw=4))
 
         # plot predicted ML results
         corner.corner(VI_pred, **defaults_kwargs, labels=parnames,
                            color='tab:red', fill_contours=True,
-                           fig=figure, range=corner_range)
+                           fig=figure, hist_kwargs=dict(density=True,color='tab:red'))
         custom_lines.append(Line2D([0], [0], color='red', lw=4))
 
         if params['Make_sky_plot'] == True:
