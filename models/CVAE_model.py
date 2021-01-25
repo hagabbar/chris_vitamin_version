@@ -224,6 +224,7 @@ def run(params, x_data_test, y_data_test, load_dir, wrmp=None):
     filter_size_r1 = params['filter_size_r1']
     filter_size_r2 = params['filter_size_r2']
     filter_size_q = params['filter_size_q']
+    parallel_conv = params['parallel_conv']
     batch_norm = params['batch_norm']
     twod_conv = params['twod_conv']
     ysh_conv_r1 = ysh1
@@ -275,13 +276,13 @@ def run(params, x_data_test, y_data_test, load_dir, wrmp=None):
         r2_xzy = VI_decoder_r2.VariationalAutoencoder('VI_decoder_r2', vonmise_mask, gauss_mask, m1_mask, m2_mask, sky_mask, n_input1=z_dimension, 
                                                      n_input2=params['ndata'], n_output=xsh_inf, n_channels=num_det, n_weights=n_weights_r2, 
                                                      drate=drate, n_filters=n_filters_r2, strides=conv_strides_r2, dilations=conv_dilations_r2,
-                                                     filter_size=filter_size_r2, maxpool=maxpool_r2, batch_norm=batch_norm, twod_conv=twod_conv)
+                                                     filter_size=filter_size_r2, maxpool=maxpool_r2, batch_norm=batch_norm, twod_conv=twod_conv, parallel_conv=parallel_conv)
         r1_zy = VI_encoder_r1.VariationalAutoencoder('VI_encoder_r1', n_input=params['ndata'], n_output=z_dimension, n_channels=num_det, n_weights=n_weights_r1,   # generates params for r1(z|y)
                                                     n_modes=n_modes, drate=drate, n_filters=n_filters_r1, strides=conv_strides_r1, dilations=conv_dilations_r1,
-                                                    filter_size=filter_size_r1, maxpool=maxpool_r1, batch_norm=batch_norm, twod_conv=twod_conv)
+                                                    filter_size=filter_size_r1, maxpool=maxpool_r1, batch_norm=batch_norm, twod_conv=twod_conv, parallel_conv=parallel_conv)
         q_zxy = VI_encoder_q.VariationalAutoencoder('VI_encoder_q', n_input1=xsh_inf, n_input2=params['ndata'], n_output=z_dimension, n_modes=n_modes_q,
                                                      n_channels=num_det, n_weights=n_weights_q, drate=drate, strides=conv_strides_q, dilations=conv_dilations_q,
-                                                     n_filters=n_filters_q, filter_size=filter_size_q, maxpool=maxpool_q, batch_norm=batch_norm, twod_conv=twod_conv)
+                                                     n_filters=n_filters_q, filter_size=filter_size_q, maxpool=maxpool_q, batch_norm=batch_norm, twod_conv=twod_conv, parallel_conv=parallel_conv)
 
         # reduce the y data size
         y_conv = y_ph
@@ -473,6 +474,7 @@ def train(params, x_data, y_data, x_data_val, y_data_val, x_data_test, y_data_te
     filter_size_r1 = params['filter_size_r1']
     filter_size_r2 = params['filter_size_r2']
     filter_size_q = params['filter_size_q']
+    parallel_conv = params['parallel_conv']
     maxpool_r1 = params['maxpool_r1']
     maxpool_r2 = params['maxpool_r2']
     maxpool_q = params['maxpool_q']
@@ -524,14 +526,14 @@ def train(params, x_data, y_data, x_data_val, y_data_val, x_data_test, y_data_te
         # LOAD VICI NEURAL NETWORKS
         r1_zy = VI_encoder_r1.VariationalAutoencoder('VI_encoder_r1', n_input=params['ndata'], n_output=z_dimension, n_channels=num_det, n_weights=n_weights_r1,   # generates params for r1(z|y)
                                                     n_modes=n_modes, drate=drate, n_filters=n_filters_r1, strides=conv_strides_r1, dilations=conv_dilations_r1,
-                                                    filter_size=filter_size_r1, maxpool=maxpool_r1, batch_norm=batch_norm, twod_conv=twod_conv)
+                                                    filter_size=filter_size_r1, maxpool=maxpool_r1, batch_norm=batch_norm, twod_conv=twod_conv, parallel_conv=parallel_conv)
         r2_xzy = VI_decoder_r2.VariationalAutoencoder('VI_decoder_r2', vonmise_mask, gauss_mask, m1_mask, m2_mask, sky_mask, n_input1=z_dimension, 
                                                      n_input2=params['ndata'], n_output=xsh[1], n_channels=num_det, n_weights=n_weights_r2, 
                                                      drate=drate, n_filters=n_filters_r2, strides=conv_strides_r2, dilations=conv_dilations_r2,
-                                                     filter_size=filter_size_r2, maxpool=maxpool_r2, batch_norm=batch_norm, twod_conv=twod_conv)
+                                                     filter_size=filter_size_r2, maxpool=maxpool_r2, batch_norm=batch_norm, twod_conv=twod_conv, parallel_conv=parallel_conv)
         q_zxy = VI_encoder_q.VariationalAutoencoder('VI_encoder_q', n_input1=xsh[1], n_input2=params['ndata'], n_output=z_dimension, n_modes=n_modes_q,
                                                      n_channels=num_det, n_weights=n_weights_q, drate=drate, strides=conv_strides_q, dilations=conv_dilations_q,
-                                                     n_filters=n_filters_q, filter_size=filter_size_q, maxpool=maxpool_q, batch_norm=batch_norm, twod_conv=twod_conv) 
+                                                     n_filters=n_filters_q, filter_size=filter_size_q, maxpool=maxpool_q, batch_norm=batch_norm, twod_conv=twod_conv, parallel_conv=parallel_conv) 
 
         tf.set_random_seed(np.random.randint(0,10))
 

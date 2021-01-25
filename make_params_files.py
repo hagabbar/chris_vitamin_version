@@ -80,43 +80,43 @@ y_normscale = 36.0
 # Main tunable variables
 ##########################
 ndata = 1024                                                                     
-det=['H1','L1','V1']                                                            
+det=['L1']                                                            
 psd_files=[] 
 rand_pars = ['mass_1','mass_2','luminosity_distance','geocent_time','phase',
-                 'theta_jn','psi','a_1','a_2','tilt_1','tilt_2','phi_12','phi_jl','ra','dec']                                   
-inf_pars=['mass_1','mass_2','luminosity_distance','geocent_time','theta_jn','a_1','a_2','tilt_1','tilt_2','phi_12','phi_jl','ra','dec'] 
+                 'theta_jn','psi','a_1','a_2','tilt_1','tilt_2','phi_12','phi_jl']                                   
+inf_pars=['mass_1','mass_2','luminosity_distance','geocent_time','theta_jn','psi','a_1','a_2','tilt_1','tilt_2','phi_12','phi_jl'] 
 #rand_pars = ['mass_1','mass_2','luminosity_distance','geocent_time','phase',
 #                 'theta_jn','psi','ra','dec']
 #inf_pars=['mass_1','mass_2','luminosity_distance','geocent_time','theta_jn','ra','dec']
 batch_size = 8                                                                 
 weight_init = 'xavier'                                                            
-n_modes=16; n_modes_q=1                                                                      
+n_modes=64; n_modes_q=1                                                                      
 initial_training_rate=1e-4                                                     
 batch_norm=False                                                                
 
 # FYI, each item in lists below correspond to each layer in networks (i.e. first item first layer)
 # pool size and pool stride should be same number in each layer
-n_filters_r1 = [33, 33, 33]                                                        
-n_filters_r2 = [33, 33, 33]                                                        
-n_filters_q = [33, 33, 33]                                                         
-filter_size_r1 = [5,8,11]                                                         
-filter_size_r2 = [5,8,11]                                                        
-filter_size_q = [5,8,11]                                                          
+n_filters_r1 = [64,48]                                                        
+n_filters_r2 = [64,48]                                                        
+n_filters_q = [64,48]                                                         
+filter_size_r1 = [11,9]                                                         
+filter_size_r2 = [11,9]                                                        
+filter_size_q = [11,9]                                                          
 drate = 0.2                                                                    
-maxpool_r1 = [1,2,1]                                                             
-conv_strides_r1 = [1,1,1]                                                        
-pool_strides_r1 = [1,2,1]
-conv_dilations_r1=[1,1,1]                                                        
-maxpool_r2 = [1,2,1]                                                             
-conv_strides_r2 = [1,1,1]                                                        
-pool_strides_r2 = [1,2,1]
-conv_dilations_r2=[1,1,1]                                                        
-maxpool_q = [1,2,1]                                                              
-conv_strides_q = [1,1,1]                                                         
-pool_strides_q = [1,2,1] 
-conv_dilations_q=[1,1,1]                                                        
+maxpool_r1 = [1,2]                                                             
+conv_strides_r1 = [1,1]                                                        
+pool_strides_r1 = [1,2]
+conv_dilations_r1=[1,1]                                                        
+maxpool_r2 = [1,2]                                                             
+conv_strides_r2 = [1,1]                                                        
+pool_strides_r2 = [1,2]
+conv_dilations_r2=[1,1]                                                        
+maxpool_q = [1,2]                                                              
+conv_strides_q = [1,1]                                                         
+pool_strides_q = [1,2] 
+conv_dilations_q=[1,1]                                                        
 n_fc = 1024                                                                      
-z_dimension=13                                                                  
+z_dimension=14                                                                  
 n_weights_r1 = [n_fc,n_fc]                                                     
 n_weights_r2 = [n_fc,n_fc]                                                     
 n_weights_q = [n_fc,n_fc]                                                      
@@ -127,31 +127,38 @@ n_weights_q = [n_fc,n_fc]
 #############################
 # optional tunable variables
 #############################
-run_label = 'test_make_params_file'#'demo_%ddet_%dpar_%dHz_hour_angle_with_late_kl_start' % (len(det),len(rand_pars),ndata) 
+run_label = 'realnoise_testing'#'demo_%ddet_%dpar_%dHz_hour_angle_with_late_kl_start' % (len(det),len(rand_pars),ndata) 
 
 # 1024 Hz label
 #bilby_results_label = 'weichangfeng_theta_jn_issue'                                             
 # 256 Hz label
-bilby_results_label = '1024Hz_full_15par'
+bilby_results_label = 'realnoise_testing'
 
 r = 1                                                          
 pe_test_num = 256                                                               
-tot_dataset_size = int(1e7)                                                     
+tot_dataset_size = int(1e3)                                                     
 tset_split = int(1e3)                                                           
-save_interval = int(2e3)                                                        
+save_interval = int(1e3)                                                        
 num_iterations=int(1e6)+1                                                       
 ref_geocent_time=1126259642.5                                                   
-load_chunk_size = 2e3                                                           
+load_chunk_size = 1e3                                                           
 samplers=['vitamin','dynesty']                                                  
 
 # Directory variables
-plot_dir="./results/%s" % run_label  
+plot_dir='/home/hunter.gabbard/public_html/CBC/chris_dec2020_vitamin/%s' % run_label  
 
 # Training/testing for 1024 Hz full par case
-train_set_dir='/home/hunter.gabbard/CBC/public_VItamin/provided_models/vitamin_b/vitamin_b/training_sets_3det_15par_1024Hz/tset_tot-10000000_split-1000_O4PSDH1L1_AdvVirgoPSD'
-val_set_dir='./validation_sets_3det_15par_1024Hz/tset_tot-1000_split-1000'
-test_set_dir = '/home/hunter.gabbard/CBC/public_VItamin/provided_models/vitamin_b/vitamin_b/test_sets/1024_khz_spins_included_15par/test_waveforms'
-pe_dir='/home/hunter.gabbard/CBC/public_VItamin/provided_models/vitamin_b/vitamin_b/test_sets/1024_khz_spins_included_15par/test'
+#train_set_dir='/home/hunter.gabbard/CBC/public_VItamin/provided_models/vitamin_b/vitamin_b/training_sets_3det_15par_1024Hz/tset_tot-10000000_split-1000_O4PSDH1L1_AdvVirgoPSD'
+#val_set_dir='./validation_sets_3det_15par_1024Hz/tset_tot-1000_split-1000'
+#test_set_dir = '/home/hunter.gabbard/CBC/public_VItamin/provided_models/vitamin_b/vitamin_b/test_sets/1024_khz_spins_included_15par/test_waveforms'
+#pe_dir='/home/hunter.gabbard/CBC/public_VItamin/provided_models/vitamin_b/vitamin_b/test_sets/1024_khz_spins_included_15par/test'
+
+# default training/testing directories
+train_set_dir='./training_sets_realnoise_%ddet_%dpar_%dHz/tset_tot-%d_split-%d' % (len(det),len(rand_pars),ndata,tot_dataset_size,tset_split)
+val_set_dir='./validation_sets_realnoise_%ddet_%dpar_%dHz/tset_tot-%d_split-%d' % (len(det),len(rand_pars),ndata,tot_dataset_size,tset_split) 
+test_set_dir = './test_sets/%s/test_waveforms' % bilby_results_label
+pe_dir='./test_sets/%s/test' % bilby_results_label
+
 #############################
 # optional tunable variables
 
@@ -160,6 +167,8 @@ def get_params():
 
     # Define dictionary to store values used in rest of code 
     params = dict(
+        parallel_conv=True,
+        __definition__parallel_conv='if true analyse detectors separately in convolutions, otherwise as channels',
         extra_lr_decay_factor=False,
         __definition__extra_decay_factor='Use an extra decay factor of 0.96 after every load iteration',
         n_KLzsamp=1,
@@ -176,11 +185,13 @@ def get_params():
         __definition__conv_dilations_q='size of convolutional dilation to use in q network', 
         hour_angle_range=[-3.813467684252483,2.469671758574231],
         __definition__hour_angle_range='min and max range of hour angle space',
-        use_real_det_noise=False,
+        use_real_det_noise=True,
         __definition__use_real_det_noise='If True, use real detector noise around reference time',
-        use_real_events=[], # e.g. 'GW150914'
+        real_noise_time_range = [1126051217, 1137254417],
+        __definition__real_noise_time_range = 'time range to produce real noise samples over',
+        use_real_events=['GW150914'], # e.g. 'GW150914'
         __definition__use_real_events='list containing real ligo events to be analyzed',
-        convert_to_hour_angle = True,
+        convert_to_hour_angle = False,
         __definition__convert_to_hour_angle='If True, convert RA to hour angle during trianing and testing',
         make_corner_plots = True,                                               
         __definition__make_corner_plots='if True, make corner plots',
@@ -208,7 +219,7 @@ def get_params():
         __definition__load_plot_data='Use plotting data which has already been generated',
         doPE = True,                                                            
         __definition__doPE='if True then do bilby PE when generating new testing samples',
-        gpu_num=5,                                                              
+        gpu_num=2,                                                              
         __definition__gpu_num='gpu number run is running on',
         ndata = ndata,                                                          
         __definition__ndata='sampling frequency',

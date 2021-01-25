@@ -745,14 +745,15 @@ class make_plots:
                 kl_result = []
                 set1 = set1.T
                 set2 = set2.T
-                for kl_idx in range(10):
-                    rand_idx_kl = np.linspace(0,self.params['n_samples']-1,num=self.params['n_samples'],dtype=np.int)
-                    np.random.shuffle(rand_idx_kl)
-                    rand_idx_kl = rand_idx_kl[:100]
-                    rand_idx_kl_2 = np.linspace(0,self.params['n_samples']-1,num=self.params['n_samples'],dtype=np.int)
-                    np.random.shuffle(rand_idx_kl_2)
-                    rand_idx_kl_2 = rand_idx_kl_2[:100]
-                    kl_result.append(estimate(set1[rand_idx_kl,:],set2[rand_idx_kl_2,:],k=10,n_jobs=10) + estimate(set2[rand_idx_kl_2,:],set1[rand_idx_kl,:],k=10,n_jobs=10))
+                #for kl_idx in range(10):
+                rand_idx_kl = np.linspace(0,self.params['n_samples']-1,num=self.params['n_samples'],dtype=np.int)
+                np.random.shuffle(rand_idx_kl)
+                rand_idx_kl = rand_idx_kl[:1000]
+                rand_idx_kl_2 = np.linspace(0,self.params['n_samples']-1,num=self.params['n_samples'],dtype=np.int)
+                np.random.shuffle(rand_idx_kl_2)
+                rand_idx_kl_2 = rand_idx_kl_2[:1000]
+                kl_result.append(estimate(set1[rand_idx_kl,:],set2[rand_idx_kl_2,:],k=10,n_jobs=10) + estimate(set2[rand_idx_kl_2,:],set1[rand_idx_kl,:],k=10,n_jobs=10))
+                
                 kl_result = np.mean(kl_result)
                 return kl_result
 
@@ -805,7 +806,7 @@ class make_plots:
                 hf = h5py.File('plotting_data_%s/KL_plot_data.h5' % params['run_label'], 'w')
         else:
             hf = h5py.File('plotting_data_%s/KL_plot_data.h5' % params['run_label'], 'r')
-        
+       
         # 4 pannel KL approach
         fig_kl, axis_kl = plt.subplots(2,2,figsize=(8,6),sharey=True,sharex=True)
         for k in range(len(usesamps)-1):
@@ -849,14 +850,13 @@ class make_plots:
                             elif sampler2 == 'vitamin1' and vi_pred_made == None:
                                 vi_pred_made = [set2,time2]
 
-
                         # Iterate over test cases
                         tot_kl = []  # total KL over all infered parameters
 
                         for r in range(self.params['r']):
                             tot_kl.append(compute_kl(set1[r],set2[r],[sampler1,sampler2]))
                             print()
-                            print('... Completed KL for set %s-%s and test sample %s' % (sampler1,sampler2,str(r)))
+                            print('... Completed KL for set %s-%s and test sample %s with mean KL: %.6f' % (sampler1,sampler2,str(r), np.mean(tot_kl)))
                             print()
                         tot_kl = np.array(tot_kl)
 
@@ -880,7 +880,7 @@ class make_plots:
                     logbins_indi = np.logspace(-3,3,50)
 
                     # plot colored hist
-                    if samplers[i] == 'vitamin' and samplers[::-1][j] == samplers[1:][k]: 
+                    if samplers[i] == 'vitamin' and samplers[::-1][j] == samplers[1:][k]:
                         axis_kl[kl_idx_1,kl_idx_2].hist(tot_kl,bins=logbins,alpha=0.5,histtype='stepfilled',density=True,color=CB_color_cycle[print_cnt],label=r'$\mathrm{%s \ vs. \ %s}$' % (fig_samplers[i],fig_samplers[::-1][j]),zorder=2)
                         axis_kl[kl_idx_1,kl_idx_2].hist(tot_kl,bins=logbins,histtype='step',density=True,facecolor='None',ls='-',lw=2,edgecolor=CB_color_cycle[print_cnt],zorder=10)
                     # record non-colored hists
@@ -888,17 +888,25 @@ class make_plots:
                         if samplers[i] == samplers[1:][k] or samplers[::-1][j] == samplers[1:][k]:
 
                             tot_kl_grey = np.append(tot_kl_grey,tot_kl)
-
                             print()
                             print('... Grey Mean total KL between %s-%s: %s' % ( sampler1, sampler2, str(np.mean(tot_kl)) ) )
 #                    print('... Completed KL calculation %d/%d' % (print_cnt,factorial(4)))
                     print()
                     print_cnt+=1
                 tmp_idx-=1
-
             # Plot non-colored histograms
-            axis_kl[kl_idx_1,kl_idx_2].hist(np.array(tot_kl_grey).squeeze(),bins=logbins,alpha=0.8,histtype='stepfilled',density=True,color='grey',label=r'$\mathrm{%s \ vs. \ other \ samplers}$' % fig_samplers[1:][k],zorder=1)
-            axis_kl[kl_idx_1,kl_idx_2].hist(np.array(tot_kl_grey).squeeze(),bins=logbins,histtype='step',density=True,facecolor='None',ls='-',lw=2,edgecolor='grey',zorder=1)
+#            axis_kl[kl_idx_1,kl_idx_2].hist(np.array(tot_kl_grey).squeeze(),bins=logbins,alpha=0.8,histtype='stepfilled',density=True,color='grey',label=r'$\mathrm{%s \ vs. \ other \ samplers}$' % fig_samplers[1:][k],zorder=1)
+#            axis_kl[kl_idx_1,kl_idx_2].hist(np.array(tot_kl_grey).squeeze(),bins=logbins,histtype='step',density=True,facecolor='None',ls='-',lw=2,edgecolor='grey',zorder=1)
+
+            grey_colors = [None,'#00FFFF','#FF00FF','#800000']
+            # make segmented grey histograms for Chris and I
+            grey_cnt = 0
+            for sampler_grey in range(1, len(self.params['samplers'][1:])):
+                start_idx = grey_cnt*125; end_idx = (grey_cnt+1)*125
+                print(start_idx, end_idx)
+                axis_kl[kl_idx_1,kl_idx_2].hist(np.array(tot_kl_grey).squeeze()[start_idx:end_idx],bins=logbins,alpha=0.8,histtype='stepfilled',density=True,color=grey_colors[sampler_grey],label=r'$\mathrm{%s \ vs. \ other \ samplers}$' % fig_samplers[1:][k],zorder=1)
+                axis_kl[kl_idx_1,kl_idx_2].hist(np.array(tot_kl_grey).squeeze()[start_idx:end_idx],bins=logbins,histtype='step',density=True,facecolor='None',ls='-',lw=2,edgecolor='grey',zorder=1)
+                grey_cnt+=1
 
             # plot KL histograms
             if kl_idx_1 == 1:
@@ -912,7 +920,7 @@ class make_plots:
 
             #axis_kl[kl_idx_1,kl_idx_2].xaxis.set_minor_locator(FixedLocator([0.5, 1.5, 2.5, 3.5, 4.5]))
             #axis_kl[kl_idx_1,kl_idx_2].xaxis.set_major_locator(ticker.LogLocator(base=10.0, numticks=15))
-            axis_kl[kl_idx_1,kl_idx_2].set_xlim(left=1e-2,right=100)
+            axis_kl[kl_idx_1,kl_idx_2].set_xlim(left=1e-3,right=100)
             ##axis_kl[kl_idx_1,kl_idx_2].set_xticks(AutoMinorLocator(),minor=True)
             #caxis_kl[kl_idx_1,kl_idx_2].xaxis.set_minor_locator(MultipleLocator(5))
             #axis_kl[kl_idx_1,kl_idx_2].tick_params(which='minor', length=4, color='r')
@@ -938,4 +946,4 @@ class make_plots:
         print()
         print('... Saved KL plot to -> %s/latest_%s/hist-kl.png' % (self.params['plot_dir'],self.params['run_label']))
         print()
-        return
+        return 

@@ -44,13 +44,13 @@ from skopt.utils import use_named_args
 
 try:
     from .models import CVAE_model
-    from .gen_benchmark_pe import run
+    from .gen_benchmark_pe import run, gen_real_noise
     from . import plotting
     from .plotting import prune_samples
     from .models.neural_networks.vae_utils import convert_ra_to_hour_angle
 except (ModuleNotFoundError, ImportError):
     from models import CVAE_model
-    from gen_benchmark_pe import run
+    from gen_benchmark_pe import run, gen_real_noise
     import plotting
     from plotting import prune_samples
     from models.neural_networks.vae_utils import convert_ra_to_hour_angle
@@ -81,6 +81,7 @@ else:
 
 parser = argparse.ArgumentParser(description='VItamin: A user friendly Bayesian inference machine learning library.')
 parser.add_argument("--gen_train", default=False, help="generate the training data")
+parser.add_argument("--gen_rnoise", default=False, help="generate the real noise samples")
 parser.add_argument("--gen_val", default=False, help="generate the validation data")
 parser.add_argument("--gen_test", default=False, help="generate the testing data")
 parser.add_argument("--train", default=False, help="train the network")
@@ -258,6 +259,21 @@ def load_data(params,bounds,fixed_vals,input_dir,inf_pars,test_data=False):
     # Iterate over all training/testing files and store source parameters, time series and SNR info in dictionary
     file_IDs = []
     for filename in train_files:
+        if test_data:
+            # Don't load files which are not consistent between samplers
+            for samp_idx_inner in params['samplers'][1:]:
+                inner_file_existance = True
+                dataLocations_inner = '%s_%s' % (params['pe_dir'],samp_idx_inner+'1')
+                filename_inner = '%s/%s_%d.h5py' % (dataLocations_inner,params['bilby_results_label'],int(filename.split('_')[-1].split('.')[0]))
+                # If file does not exist, skip to next file
+                inner_file_existance = os.path.isfile(filename_inner)
+                if inner_file_existance == False:
+                    break
+
+            if inner_file_existance == False:
+                print('File not consistent beetween samplers')
+                continue
+        
         try:
             data_temp={'x_data': h5py.File(dataLocations[0]+'/'+filename, 'r')['x_data'][:],
                   'y_data_noisefree': h5py.File(dataLocations[0]+'/'+filename, 'r')['y_data_noisefree'][:],
@@ -329,6 +345,85 @@ def load_data(params,bounds,fixed_vals,input_dir,inf_pars,test_data=False):
 
     return x_data, y_data, y_data_noisy, snrs
 
+def gen_rnoise(params=params,bounds=bounds,fixed_vals=fixed_vals):
+    """ Generate real noise over requested time segment
+
+    Parameters
+    ----------
+    params: dict
+        Dictionary containing run parameters
+    bounds: dict
+        Dictionary containing allowed bounds of GW source parameters
+    fixed_vals: dict
+        Dictionary containing the fixed values of GW source parameters
+
+    """
+
+    # Check for requried parameters files
+    if params == None or bounds == None or fixed_vals == None:
+        print('Missing either params file, bounds file or fixed vals file')
+        exit()
+
+    # Load parameters files
+    with open(params, 'r') as fp:
+        params = json.load(fp)
+    with open(bounds, 'r') as fp:
+        bounds = json.load(fp)
+    with open(fixed_vals, 'r') as fp:
+        fixed_vals = json.load(fp)
+
+    # Make training set directory
+    os.system('mkdir -p %s' % params['train_set_dir'])
+
+    # Make directory for plots
+    os.system('mkdir -p %s/latest_%s' % (params['plot_dir'],params['run_label']))
+
+    print()
+    print('... Making real noise samples')
+    print()
+
+    # continue producing noise samples until requested number has been fullfilled
+    stop_flag = False; idx = time_cnt = 0
+    start_file_seg = params['real_noise_time_range'][0]
+    end_file_seg = None
+    # iterate until we get the requested number of real noise samples
+    while idx <= params['tot_dataset_size'] or stop_flag:
+
+
+        file_samp_idx = 0
+        # iterate until we get the requested number of real noise samples per tset_split files
+        while file_samp_idx <= params['tset_split']:
+            real_noise_seg = [start_file_seg+idx+time_cnt, start_file_seg+idx+time_cnt+1]
+            real_noise_data = np.zeros((int(params['tset_split']),int( params['ndata']*params['duration'])))        
+
+            try:
+                # make the data - shift geocent time to correct reference
+                real_noise_data[file_samp_idx, :] = gen_real_noise(params['duration'],params['ndata'],params['det'],
+                                        params['ref_geocent_time'],params['psd_files'],
+                                        real_noise_seg=real_noise_seg
+                                        )
+                print('Found segment')
+            except ValueError as e:
+                print(e)
+                time_cnt+=1
+                continue
+            print(real_noise_data)
+            exit()
+
+        print("Generated: %s/data_%d-%d.h5py ..." % (params['train_set_dir'],start_file_seg,end_file_seg))
+
+        # store noise sample information in hdf5 format
+        hf = h5py.File('%s/data_%d-%d.h5py' % (params['train_set_dir'],start_file_seg,end_file_seg), 'w')
+        hf.create_dataset('real_noise_samples', data=real_noise_data)
+        hf.close()
+        idx+=params['tset_split']
+
+        # stop training
+        if idx>params['real_noise_time_range'][1]:
+            stop_flat = True  
+        exit()
+    return 
+
 def gen_train(params=params,bounds=bounds,fixed_vals=fixed_vals):
     """ Generate training samples
 
@@ -385,7 +480,8 @@ def gen_train(params=params,bounds=bounds,fixed_vals=fixed_vals):
                                                           label=params['run_label'],
                                                           training=True,det=params['det'],
                                                           psd_files=params['psd_files'],
-                                                          use_real_det_noise=params['use_real_det_noise'])
+                                                          use_real_det_noise=params['use_real_det_noise'],
+                                                          samp_idx=i, params=params)
         logging.config.dictConfig({
         'version': 1,
         'disable_existing_loggers': False,
@@ -1343,6 +1439,8 @@ def gen_samples(params=params,bounds=bounds,fixed_vals=fixed_vals,model_loc='mod
 # If running module from command line
 if args.gen_train:
     gen_train(params,bounds,fixed_vals)
+if args.gen_rnoise:
+    gen_rnoise(params,bounds,fixed_vals)
 if args.gen_val:
     gen_val(params,bounds,fixed_vals)
 if args.gen_test:
@@ -1352,5 +1450,5 @@ if args.train:
 if args.test:
     test(params,bounds,fixed_vals,use_gpu=bool(args.use_gpu))
 if args.gen_samples:
-    gen_samples(params,bounds,fixed_vals,model_loc=args.pretrained_loc,
+    gen_samples(arams,bounds,fixed_vals,model_loc=args.pretrained_loc,
                 test_set=args.test_set_loc,num_samples=args.num_samples,use_gpu=bool(args.use_gpu))

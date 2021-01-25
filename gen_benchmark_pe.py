@@ -20,6 +20,7 @@ import time
 import h5py
 from scipy.ndimage.interpolation import shift
 import argparse
+from gwpy.timeseries import TimeSeries
 
 def parser():
     """ Parses command line arguments
@@ -51,11 +52,40 @@ def parser():
 
     return parser.parse_args()
 
+def gen_real_noise(duration,
+                 sampling_frequency,
+                 det,
+                 ref_geocent_time, psd_files=[],
+                 real_noise_seg =[None,None]
+                 ):
+    """ pull real noise samples
+    """
+
+    # compute the number of time domain samples
+    Nt = int(sampling_frequency*duration)
+
+    # Get ifos bilby variable
+    ifos = bilby.gw.detector.InterferometerList(det)
+
+    start_open_seg, end_open_seg = real_noise_seg # 1 sec noise segments
+    for ifo_idx,ifo in enumerate(ifos): # iterate over interferometers
+        time_series = TimeSeries.find('%s:GDS-CALIB_STRAIN' % det[ifo_idx],
+                      start_open_seg, end_open_seg) # pull timeseries data using gwpy
+        ifo.set_strain_data_from_gwpy_timeseries(time_series=time_series) # input new ts into bilby ifo
+
+    noise_sample = ifos[0].strain_data.frequency_domain_strain # get frequency domain strain
+    noise_sample /= ifos[0].amplitude_spectral_density_array # assume default psd from bilby
+    noise_sample = np.sqrt(2.0*Nt)*np.fft.irfft(noise_sample) # convert frequency to time domain
+
+    return noise_sample
+    
+
 def gen_template(duration,
                  sampling_frequency,
                  pars,
                  ref_geocent_time, psd_files=[],
-                 use_real_det_noise=False
+                 use_real_det_noise=False,
+                 real_noise_seg =[None,None]
                  ):
     """ Generates a whitened waveforms in Gaussian noise.
 
@@ -65,6 +95,7 @@ def gen_template(duration,
         duration of the signal in seconds
     sampling_frequency: float
         sampling frequency of the signal
+B
     pars: dict
         values of source parameters for the waveform
     ref_geocent_time: float
@@ -73,6 +104,9 @@ def gen_template(duration,
         list of psd files to use for each detector (if other than default is wanted)
     use_real_det_noise: bool
         if True, use real ligo noise around ref_geocent_time
+    real_noise_seg: list
+        list containing the starting and ending times of the real noise 
+        segment
 
     Returns
     -------
@@ -124,29 +158,28 @@ def gen_template(duration,
 
     # Set up interferometers. These default to their design
     # sensitivity
-    if use_real_det_noise: # If true, get real noise
-        ifos=[]
-        for det in pars['det']:
-            ifos.append(bilby.gw.detector.get_interferometer_with_open_data(det, pars['geocent_time'], 
-                                                                   start_time=start_time,
-                                                                   duration=duration))
-        ifos = bilby.gw.detector.InterferometerList(ifos)
-    else:                  # else use gaussian noise
-        ifos = bilby.gw.detector.InterferometerList(pars['det'])
+
+#    if use_real_det_noise: # If true, get real noise
+#        ifos=[]
+#        for det in pars['det']:
+#            ifos.append(bilby.gw.detector.get_interferometer_with_open_data(det, pars['geocent_time'], 
+#                                                                   start_time=start_time,
+#                                                                   duration=duration))
+#        ifos = bilby.gw.detector.InterferometerList(ifos)
+#    else:                  # else use gaussian noise
+    ifos = bilby.gw.detector.InterferometerList(pars['det'])
 
     # If user is specifying PSD files
     if len(psd_files) > 0:
         print(psd_files)
+        print('Not using custome psd files just yet. Exiting program ...')
         exit()
         for int_idx,ifo in enumerate(ifos):
             ifo.power_spectral_density = bilby.gw.detector.PowerSpectralDensity(psd_file=psd_files[int_idx])
 
-    # set noise to be colored Gaussian noise
-    # set_strain_data_from_gwpy
-    if not use_real_det_noise:
-        ifos.set_strain_data_from_power_spectral_densities(
-        sampling_frequency=sampling_frequency, duration=duration,
-        start_time=start_time)
+    ifos.set_strain_data_from_power_spectral_densities(
+    sampling_frequency=sampling_frequency, duration=duration,
+    start_time=start_time)
 
     # inject signal
     ifos.inject_signal(waveform_generator=waveform_generator,
@@ -336,9 +369,8 @@ def run(sampling_frequency=256.0,
 
     # generate training samples
     if training == True:
-        train_samples = []
-        train_pars = []
-        snrs = []
+        train_samples = real_noise_array = []
+        train_pars = snrs = []
         for i in range(N_gen):
             
             # sample from priors

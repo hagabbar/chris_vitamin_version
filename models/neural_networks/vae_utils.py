@@ -14,21 +14,32 @@ def resblock(x_init, channels, is_training=True, use_bias=True, downsample=False
     with tf.variable_scope(scope) :
 
         x = tf.nn.relu(x_init)
-        x = tf.layers.conv2d(inputs=x, filters=channels,
-                             kernel_size=3, kernel_initializer=tf.keras.initializers.VarianceScaling(),
-                             kernel_regularizer=tf.keras.regularizers.l2(0.0001),
-                             strides=1, use_bias=True, padding='SAME')
 
+        if downsample:
+            x = tf.add(tf.nn.conv2d(x, get_res_weights(),strides=[2,1],dilations=[1,1],padding='SAME'),get_res_bias())
+            x_init = tf.add(tf.nn.conv2d(x_init, tf.Variable(tf.reshape(xavier_init(1, 16*16),[1, 1, 16, 16]), dtype=tf.float32),strides=[2,1],dilations=[1,1],padding='SAME'),get_res_bias())
+        else:
+            x = tf.add(tf.nn.conv2d(x, get_res_weights(),strides=[1,1],dilations=[1,1],padding='SAME'),get_res_bias())
 
         x = tf.nn.relu(x)
 
-        x = tf.layers.conv2d(inputs=x, filters=channels,
-                             kernel_size=3, kernel_initializer=tf.keras.initializers.VarianceScaling(),
-                             kernel_regularizer=tf.keras.regularizers.l2(0.0001),
-                             strides=1, use_bias=True, padding='SAME')
-
-
+        x = tf.add(tf.nn.conv2d(x, get_res_weights(),strides=[1,1],dilations=[1,1],padding='SAME'),get_res_bias())
         return x + x_init
+
+def get_res_weights():
+    dummy_t = 16
+    with tf.variable_scope("weights"):
+        res_weights = tf.Variable(tf.reshape(xavier_init(3, dummy_t*16),[3, 1, dummy_t, 16]), dtype=tf.float32)
+#    tf.summary.histogram(weight_name+'t', all_weights['VI_decoder_r2'][weight_name+'t'])
+
+        return res_weights
+
+def get_res_bias():
+    with tf.variable_scope("biases"):
+        res_bias = tf.Variable(tf.zeros([16], dtype=tf.float32))
+#    tf.summary.histogram(''+'t', all_weights['VI_decoder_r2'][bias_name+'t'])
+
+        return res_bias
 
 def convert_ra_to_hour_angle(data, params, pars, single=False):
     """
