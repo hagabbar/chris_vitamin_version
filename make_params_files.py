@@ -80,11 +80,12 @@ y_normscale = 36.0
 # Main tunable variables
 ##########################
 ndata = 1024                                                                     
-det=['L1']                                                            
-psd_files=[] 
+det=['H1','L1']                                                            
+#psd_files=['/home/hunter.gabbard/.local/lib/python3.6/site-packages/bilby/gw/detector/noise_curves/aLIGO_early_asd.txt'] 
+psd_files=[]
 rand_pars = ['mass_1','mass_2','luminosity_distance','geocent_time','phase',
                  'theta_jn','psi','a_1','a_2','tilt_1','tilt_2','phi_12','phi_jl']                                   
-inf_pars=['mass_1','mass_2','luminosity_distance','geocent_time','theta_jn','psi','a_1','a_2','tilt_1','tilt_2','phi_12','phi_jl'] 
+inf_pars=['mass_1','mass_2','geocent_time','phase'] 
 #rand_pars = ['mass_1','mass_2','luminosity_distance','geocent_time','phase',
 #                 'theta_jn','psi','ra','dec']
 #inf_pars=['mass_1','mass_2','luminosity_distance','geocent_time','theta_jn','ra','dec']
@@ -132,13 +133,14 @@ run_label = 'realnoise_testing'#'demo_%ddet_%dpar_%dHz_hour_angle_with_late_kl_s
 # 1024 Hz label
 #bilby_results_label = 'weichangfeng_theta_jn_issue'                                             
 # 256 Hz label
-bilby_results_label = 'realnoise_testing'
+bilby_results_label = 'GW150914'
 
 r = 1                                                          
 pe_test_num = 256                                                               
-tot_dataset_size = int(1e3)                                                     
+tot_dataset_size = int(1e6)                                                     
+val_dataset_size = int(1e3)
 tset_split = int(1e3)                                                           
-save_interval = int(1e3)                                                        
+save_interval = int(1e7)                                                        
 num_iterations=int(1e6)+1                                                       
 ref_geocent_time=1126259642.5                                                   
 load_chunk_size = 1e3                                                           
@@ -154,10 +156,10 @@ plot_dir='/home/hunter.gabbard/public_html/CBC/chris_dec2020_vitamin/%s' % run_l
 #pe_dir='/home/hunter.gabbard/CBC/public_VItamin/provided_models/vitamin_b/vitamin_b/test_sets/1024_khz_spins_included_15par/test'
 
 # default training/testing directories
-train_set_dir='./training_sets_realnoise_%ddet_%dpar_%dHz/tset_tot-%d_split-%d' % (len(det),len(rand_pars),ndata,tot_dataset_size,tset_split)
-val_set_dir='./validation_sets_realnoise_%ddet_%dpar_%dHz/tset_tot-%d_split-%d' % (len(det),len(rand_pars),ndata,tot_dataset_size,tset_split) 
+train_set_dir='./training_sets_%ddet_%dpar_%dHz/tset_tot-%d_split-%d' % (len(det),len(rand_pars),ndata,tot_dataset_size,tset_split)
+val_set_dir='./validation_sets_%ddet_%dpar_%dHz/tset_tot-%d_split-%d' % (len(det),len(rand_pars),ndata,tot_dataset_size,tset_split) 
 test_set_dir = './test_sets/%s/test_waveforms' % bilby_results_label
-pe_dir='./test_sets/%s/test' % bilby_results_label
+pe_dir=None#'./test_sets/%s/test' % bilby_results_label
 
 #############################
 # optional tunable variables
@@ -167,7 +169,11 @@ def get_params():
 
     # Define dictionary to store values used in rest of code 
     params = dict(
-        parallel_conv=True,
+        validation_data_seed=45,
+        __definition__validation_data_seed='tensorflow validation random seed number',
+        val_dataset_size=val_dataset_size,
+        __definition__val_dataset_size="total number of validation samples to use",
+        parallel_conv=False,
         __definition__parallel_conv='if true analyse detectors separately in convolutions, otherwise as channels',
         extra_lr_decay_factor=False,
         __definition__extra_decay_factor='Use an extra decay factor of 0.96 after every load iteration',
@@ -185,6 +191,8 @@ def get_params():
         __definition__conv_dilations_q='size of convolutional dilation to use in q network', 
         hour_angle_range=[-3.813467684252483,2.469671758574231],
         __definition__hour_angle_range='min and max range of hour angle space',
+        real_noise_loc = './training_sets_realnoise_1det_13par_1024Hz',
+        __definition__real_noise_loc='directory containing real noise sample files',
         use_real_det_noise=True,
         __definition__use_real_det_noise='If True, use real detector noise around reference time',
         real_noise_time_range = [1126051217, 1137254417],
@@ -219,7 +227,7 @@ def get_params():
         __definition__load_plot_data='Use plotting data which has already been generated',
         doPE = True,                                                            
         __definition__doPE='if True then do bilby PE when generating new testing samples',
-        gpu_num=2,                                                              
+        gpu_num=0,                                                              
         __definition__gpu_num='gpu number run is running on',
         ndata = ndata,                                                          
         __definition__ndata='sampling frequency',
