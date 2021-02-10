@@ -265,9 +265,9 @@
         "phase"
     ],
     "__definition__inf_pars": "parameters to infer",
-    "train_set_dir": "./training_sets_2det_13par_1024Hz/tset_tot-1000000_split-1000",
+    "train_set_dir": "./training_sets_1det_13par_1024Hz/tset_tot-1000000_split-1000",
     "__definition__train_set_dir": "location of training set directory",
-    "val_set_dir": "./validation_sets_2det_13par_1024Hz/tset_tot-1000000_split-1000",
+    "val_set_dir": "./validation_sets_1det_13par_1024Hz/tset_tot-1000000_split-1000",
     "__definition__val_set_dir": "location of validation set directory",
     "test_set_dir": "./test_sets/GW150914/test_waveforms",
     "__definition__test_set_dir": "location of test set directory waveforms",
@@ -315,11 +315,12 @@
     ],
     "__definition__sky_pars": "sky parameters",
     "det": [
-        "H1",
         "L1"
     ],
     "__definition__det": "LIGO detectors to perform analysis on (default is 3detector H1,L1,V1)",
-    "psd_files": [],
+    "psd_files": [
+        "/home/hunter.gabbard/.local/lib/python3.6/site-packages/bilby/gw/detector/noise_curves/aLIGO_early_asd.txt"
+    ],
     "__definition__psd_files": "User may specficy their own psd files for each detector. Must be bilby compatible .txt files. If specifying your own files, do so for each detector. If list is empty, default Bilby PSD values will be used for each detector. ",
     "weighted_pars": null,
     "__definition__weighted_pars": "set to None if not using, parameters to weight during training",

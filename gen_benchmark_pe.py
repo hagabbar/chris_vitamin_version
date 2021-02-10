@@ -52,46 +52,6 @@ def parser():
 
     return parser.parse_args()
 
-def gen_real_noise(duration,
-                 sampling_frequency,
-                 det,
-                 ref_geocent_time, psd_files=[],
-                 real_noise_seg =[None,None]
-                 ):
-    """ pull real noise samples
-    """
-
-    # compute the number of time domain samples
-    Nt = int(sampling_frequency*duration)
-
-    # Get ifos bilby variable
-    ifos = bilby.gw.detector.InterferometerList(det)
-
-    # If user is specifying PSD files
-    if len(psd_files) > 0:
-        type_psd = psd_files[0].split('/')[-1].split('_')[-1].split('.')[0]
-        if type_psd == 'psd':
-            ifos[0].power_spectral_density = bilby.gw.detector.PowerSpectralDensity(psd_file=psd_files[0])
-        elif type_psd == 'asd':
-            ifos[0].power_spectral_density = bilby.gw.detector.PowerSpectralDensity(asd_file=psd_files[0])
-        else:
-            print('Could not determine whether psd or asd ...')
-            exit()
-
-    start_open_seg, end_open_seg = real_noise_seg # 1 sec noise segments
-    for ifo_idx,ifo in enumerate(ifos): # iterate over interferometers
-        time_series = TimeSeries.find('%s:GDS-CALIB_STRAIN' % det[ifo_idx],
-                      start_open_seg, end_open_seg) # pull timeseries data using gwpy
-        time_series = TimeSeries.resample(time_series, sampling_frequency)
-        ifo.set_strain_data_from_gwpy_timeseries(time_series=time_series) # input new ts into bilby ifo
-
-    noise_sample = ifos[0].strain_data.frequency_domain_strain # get frequency domain strain
-    noise_sample /= ifos[0].amplitude_spectral_density_array # assume default psd from bilby
-    noise_sample = np.sqrt(2.0*Nt)*np.fft.irfft(noise_sample) # convert frequency to time domain
-
-    return noise_sample
-    
-
 def gen_template(duration,
                  sampling_frequency,
                  pars,

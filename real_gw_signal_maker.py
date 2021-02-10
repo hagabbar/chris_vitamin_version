@@ -34,11 +34,11 @@ analysis_start = time_of_event + post_trigger_duration - duration
 #    "L1", analysis_start, analysis_start + duration, sample_rate=1024, cache=True)
 
 H1_analysis_data = TimeSeries.find(
-    "H1:GDS-CALIB_STRAIN", analysis_start, analysis_start + duration)
+    "H1:DCS-CALIB_STRAIN_C01", analysis_start, analysis_start + duration)
 H1_analysis_data = TimeSeries.resample(H1_analysis_data, 1024)
 
 L1_analysis_data = TimeSeries.find(
-    "L1:GDS-CALIB_STRAIN", analysis_start, analysis_start + duration)
+    "H1:DCS-CALIB_STRAIN_C01", analysis_start, analysis_start + duration)
 L1_analysis_data = TimeSeries.resample(L1_analysis_data, 1024)
 
 H1_analysis_data.plot()
@@ -47,6 +47,14 @@ H1_analysis_data.plot()
 H1.set_strain_data_from_gwpy_timeseries(H1_analysis_data)
 L1.set_strain_data_from_gwpy_timeseries(L1_analysis_data)
 
+
+# use predefined psd file
+# If user is specifying PSD files
+psd_file = '/home/hunter.gabbard/.local/lib/python3.6/site-packages/bilby/gw/detector/noise_curves/aLIGO_early_asd.txt'
+H1.power_spectral_density = bilby.gw.detector.PowerSpectralDensity(asd_file=psd_file)
+L1.power_spectral_density = bilby.gw.detector.PowerSpectralDensity(asd_file=psd_file)
+
+"""
 psd_duration = duration * 32
 psd_start_time = analysis_start - psd_duration
 
@@ -71,6 +79,7 @@ H1.power_spectral_density = bilby.gw.detector.PowerSpectralDensity(
     frequency_array=H1_psd.frequencies.value, psd_array=H1_psd.value)
 L1.power_spectral_density = bilby.gw.detector.PowerSpectralDensity(
     frequency_array=H1_psd.frequencies.value, psd_array=L1_psd.value)
+"""
 
 """
 fig, ax = plt.subplots()
@@ -100,7 +109,7 @@ plt.savefig('/home/hunter.gabbard/public_html/random_stuff/test.png')
 
 prior = bilby.core.prior.PriorDict()
 #prior.pop('chirp_mass')
-prior['mass_ratio'] = Uniform(name='mass_ratio', minimum=0.125, maximum=1)
+prior['mass_ratio'] = bilby.gw.prior.Constraint(minimum=0.125, maximum=1, name='mass_ratio', latex_label='$q$', unit=None)
 prior['mass_1'] = Uniform(name='mass_1', minimum=5, maximum=100,unit='$M_{\odot}$')
 prior['mass_2'] = Uniform(name='mass_2', minimum=5, maximum=100,unit='$M_{\odot}$')
 prior['phase'] = Uniform(name="phase", minimum=0, maximum=2*np.pi)
@@ -122,7 +131,7 @@ interferometers = [H1, L1]
 
 # Next create a dictionary of arguments which we pass into the LALSimulation waveform - we specify the waveform approximant here
 waveform_arguments = dict(
-    waveform_approximant='IMRPhenomPv2', reference_frequency=20., minimum_frequency=20.0, catch_waveform_errors=False)
+    waveform_approximant='IMRPhenomPv2', reference_frequency=20., minimum_frequency=20.0)
 
 # Next, create a waveform_generator object. This wraps up some of the jobs of converting between parameters etc
 waveform_generator = bilby.gw.WaveformGenerator(
@@ -139,38 +148,46 @@ for i in range(len(interferometers)):
     signal_fd = np.sqrt(2.0*Nt)*np.fft.irfft(signal_fd)
     signal_fd_all[i,:] = signal_fd
 
-"""
 try:
     os.mkdir('short')
 except:
     print('Directory already exists')
 try:
-    os.mkdir('short/waveforms/')
+    os.mkdir('short/test_waveforms/')
+    os.mkdir('short/test_dynesty1/')
 except:
-    os.remove('short/waveforms/GW150914.h5py')
     print('Directory already exists')
 
-"""
-hf = h5py.File('test_sets/GW150914/test_waveforms/GW150914_0.h5py')
+hf = h5py.File('short/test_waveforms/GW150914_0.h5py')
 hf.create_dataset('noisy_waveforms', data=signal_fd_all)
 hf.create_dataset('noisefree_waveforms', data=np.array([]))
 hf.create_dataset('x_data', data=np.array([]))
 hf.close()
-exit()
 
 # Finally, create our likelihood, passing in what is needed to get going
 likelihood = bilby.gw.likelihood.GravitationalWaveTransient(
     interferometers, waveform_generator, priors=prior,
     time_marginalization=False, phase_marginalization=True, distance_marginalization=False)
 
-result_short = bilby.run_sampler(
+result = bilby.run_sampler(
     likelihood, prior, sampler='dynesty', outdir='short', label="GW150914",
 #    conversion_function=bilby.gw.conversion.generate_all_bbh_parameters,
     save='hdf5', nlive=500, dlogz=3, plot=True  # <- Arguments are used to make things fast - not recommended for general use
 )
 
+# save test sample waveform
+hf = h5py.File('short/test_dynesty1', 'w')
+# loop over randomised params and save samples
+for q,qi in result.posterior.items():
+    name = q + '_post'
+    print('saving PE samples for parameter {}'.format(q))
+    hf.create_dataset(name, data=np.array(qi))
+hf.close()
+
 print('Generated posterior samples')
 exit()
+
+##################################################################################
 result_short.posterior
 result_short.posterior["chirp_mass"]
 Mc = result_short.posterior["chirp_mass"].values

@@ -38,11 +38,11 @@ deprecation._PRINT_DEPRECATION_WARNINGS = False
 
 try:
     from .models import CVAE_model
-    from .gen_benchmark_pe import run, gen_real_noise
+    from .gen_benchmark_pe import run
     from .models.neural_networks.vae_utils import convert_ra_to_hour_angle, convert_hour_angle_to_ra
 except (ModuleNotFoundError, ImportError):
     from models import CVAE_model
-    from gen_benchmark_pe import run, gen_real_noise
+    from gen_benchmark_pe import run
     from models.neural_networks.vae_utils import convert_ra_to_hour_angle, convert_hour_angle_to_ra
 
 # Check for optional basemap installation
@@ -303,48 +303,81 @@ def gen_rnoise(params=params,bounds=bounds,fixed_vals=fixed_vals):
     print('... Making real noise samples')
     print()
 
+    # Get all frame files 
+    frame_list = []
+    for path, subdirs, files in os.walk('/hdfs/frames/O1/hoft_C01_4kHz/%s' % params['det'][0]):
+        for name in files:
+            frame_list.append(os.path.join(path, name))
+
+    # load an initial frame file
+    from gwpy.timeseries import TimeSeries
+    frame_det = frame_list[0].split('/')[-1].split('-')[0]
+    frame_file = TimeSeries.read(frame_list[0], '%s1:DCS-CALIB_STRAIN_C01' % frame_det, nproc=10)
+    frame_file = TimeSeries.resample(frame_file, params['ndata'])  
+
     # continue producing noise samples until requested number has been fullfilled
-    stop_flag = False; idx = time_cnt = 0
-    start_file_seg = params['real_noise_time_range'][0]
-    end_file_seg = params['tot_dataset_size']
+    stop_flag = False; idx = time_cnt = frame_idx = 0
+    num_rand_frame_idx = 400
+    frame_idx_list = np.random.randint(0, len(frame_file)-params['ndata'], size=num_rand_frame_idx)
+
+    # compute the number of time domain samples
+    Nt = int(params['ndata']*params['duration'])
+    psd_files = params['psd_files']
+    end_file_seg = int(params['tot_dataset_size'])
+
     # iterate until we get the requested number of real noise samples
     while idx < params['tot_dataset_size'] or stop_flag:
 
 
         file_samp_idx = 0
+        real_noise_data = np.zeros((int(params['tset_split']),int( params['ndata']*params['duration'])))
         # iterate until we get the requested number of real noise samples per tset_split files
         while file_samp_idx < params['tset_split']:
-            real_noise_seg = [start_file_seg+idx+time_cnt, start_file_seg+idx+time_cnt+1]
-            real_noise_data = np.zeros((int(params['tset_split']),int( params['ndata']*params['duration'])))        
 
-            try:
-                # make the data - shift geocent time to correct reference
-                logging.config.dictConfig({
-                'version': 1,
-                'disable_existing_loggers': True,
-                })
-                with suppress_stdout():
-                    real_noise_data[file_samp_idx, :] = gen_real_noise(params['duration'],params['ndata'],params['det'],
-                                    params['ref_geocent_time'],params['psd_files'],
-                                    real_noise_seg=real_noise_seg
-                                    )
-#                print('Found segment %d' % file_samp_idx)
-                file_samp_idx+=1
-            except ValueError as e:
-                logging.config.dictConfig({
-                'version': 1,
-                'disable_existing_loggers': False,
-                 })
-                print(e)
-                time_cnt+=1
-                continue
+            if frame_idx == len(frame_idx_list):
+                np.random.shuffle(frame_list)
+                print('Loading: ' + frame_list[0]+'...')
+                frame_det = frame_list[0].split('/')[-1].split('-')[0]
+                frame_file = TimeSeries.read(frame_list[0], '%s1:DCS-CALIB_STRAIN_C01' % frame_det, nproc=20)
+                frame_file = TimeSeries.resample(frame_file, params['ndata'])
+                frame_idx = 0    
+                frame_idx_list = np.random.randint(0, len(frame_file)-params['ndata'], size=num_rand_frame_idx)
 
-        logging.config.dictConfig({
-        'version': 1,
-        'disable_existing_loggers': False,
-        })
+            logging.config.dictConfig({
+            'version': 1,
+            'disable_existing_loggers': True,
+            })
+ 
+#            with suppress_stdout():
+            time_series = frame_file[frame_idx_list[frame_idx]:frame_idx_list[frame_idx]+params['ndata']]
+            # Get ifos bilby variable
+            ifos = bilby.gw.detector.InterferometerList(params['det'])
+
+            # If user is specifying PSD files
+            if len(psd_files) > 0:
+                type_psd = psd_files[0].split('/')[-1].split('_')[-1].split('.')[0]
+                if type_psd == 'psd':
+                    ifos[0].power_spectral_density = bilby.gw.detector.PowerSpectralDensity(psd_file=psd_files[0])
+                elif type_psd == 'asd':
+                    ifos[0].power_spectral_density = bilby.gw.detector.PowerSpectralDensity(asd_file=psd_files[0])
+                else:
+                    print('Could not determine whether psd or asd ...')
+                    exit()
+
+            ifos[0].set_strain_data_from_gwpy_timeseries(time_series=time_series) # input new ts into bilby ifo
+            noise_sample = ifos[0].strain_data.frequency_domain_strain # get frequency domain strain
+            noise_sample /= ifos[0].amplitude_spectral_density_array # assume default psd from bilby
+            noise_sample = np.sqrt(2.0*Nt)*np.fft.irfft(noise_sample) # convert frequency to time domain
+            real_noise_data[file_samp_idx, :] = noise_sample
+
+            logging.config.dictConfig({
+            'version': 1,
+            'disable_existing_loggers': False,
+            })
+
+            file_samp_idx+=1; frame_idx+=1
+
         print("Generated: %s/data_%d-%d.h5py ..." % (params['train_set_dir']+'_'+params['det'][0],idx+params['tset_split'],end_file_seg))
-
         # store noise sample information in hdf5 format
         hf = h5py.File('%s/data_%d-%d.h5py' % (params['train_set_dir']+'_'+params['det'][0],idx+params['tset_split'],end_file_seg), 'w')
         hf.create_dataset('real_noise_samples', data=real_noise_data)

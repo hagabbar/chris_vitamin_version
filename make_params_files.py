@@ -80,9 +80,8 @@ y_normscale = 36.0
 # Main tunable variables
 ##########################
 ndata = 1024                                                                     
-det=['H1','L1']                                                            
-#psd_files=['/home/hunter.gabbard/.local/lib/python3.6/site-packages/bilby/gw/detector/noise_curves/aLIGO_early_asd.txt'] 
-psd_files=[]
+det=['L1']                                                            
+psd_files=['/home/hunter.gabbard/.local/lib/python3.6/site-packages/bilby/gw/detector/noise_curves/aLIGO_early_asd.txt'] 
 rand_pars = ['mass_1','mass_2','luminosity_distance','geocent_time','phase',
                  'theta_jn','psi','a_1','a_2','tilt_1','tilt_2','phi_12','phi_jl']                                   
 inf_pars=['mass_1','mass_2','geocent_time','phase'] 
