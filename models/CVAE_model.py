@@ -36,6 +36,34 @@ tfd = tfp.distributions
 SMALL_CONSTANT = 1e-6 # necessary to prevent the division by zero in many operations 
 GAUSS_RANGE = 10.0     # Actual range of truncated gaussian when the ramp is 0
 
+def get_real_noise_batch(params):
+    """ Get a batch of time slided real noise samples
+    """
+
+    # Load files
+    bs=params['batch_size']
+    real_noise_batch = np.zeros((bs, params['ndata'], len(params['det'])))
+    filelist = []; path = params['real_noise_loc']
+
+    for root, dirs, files in os.walk(path):
+        for file in files:
+            #append the file name to the list
+            filelist.append(os.path.join(root,file))
+    np.random.shuffle(filelist)
+    
+    # load in 5000 random samples
+    loaded_file_list = []
+    for i in range(5):
+        loaded_file = h5py.File(filelist[i], 'r')
+        loaded_file_list.append(loaded_file['real_noise_samples'])
+    loaded_file_list = np.concatenate(np.array(loaded_file_list), axis=0)
+    np.random.shuffle(loaded_file_list)
+
+    for i in range(len(params['det'])):
+        real_noise_batch[:,:,i] = loaded_file_list[i*bs:(i+1)*bs,:] 
+        
+    return real_noise_batch
+
 def load_chunk(input_dir,inf_pars,params,bounds,fixed_vals,load_condor=False):
     """ Function to load more training/testing data
 
@@ -523,22 +551,26 @@ def train(params, x_data, y_data, x_data_val, y_data_val, x_data_test, y_data_te
         skyramp = tf.placeholder(dtype=tf.float32) # sky loss ramp placeholder
         extra_lr_decay_factor = tf.placeholder(dtype=tf.float32)    # the ramp to slowly increase the KL contribution
 
+        # Add noise to time series
+        if params['use_real_det_noise']:
+            real_noise = tf.placeholder(dtype=tf.float32, shape=[None, params['ndata'], num_det], name="real_noise_samp")
+            y_conv = (y_ph + real_noise)/y_normscale
+        else:
+            y_conv = y_ph + tf.random.normal([bs_ph,params['ndata'],num_det],0.0,1.0,dtype=tf.float32)/y_normscale
+
         # LOAD VICI NEURAL NETWORKS
         r1_zy = VI_encoder_r1.VariationalAutoencoder('VI_encoder_r1', n_input=params['ndata'], n_output=z_dimension, n_channels=num_det, n_weights=n_weights_r1,   # generates params for r1(z|y)
                                                     n_modes=n_modes, drate=drate, n_filters=n_filters_r1, strides=conv_strides_r1, dilations=conv_dilations_r1,
-                                                    filter_size=filter_size_r1, maxpool=maxpool_r1, batch_norm=batch_norm, twod_conv=twod_conv, parallel_conv=parallel_conv)
+                                                    filter_size=filter_size_r1, maxpool=maxpool_r1, batch_norm=batch_norm, twod_conv=twod_conv)
         r2_xzy = VI_decoder_r2.VariationalAutoencoder('VI_decoder_r2', vonmise_mask, gauss_mask, m1_mask, m2_mask, sky_mask, n_input1=z_dimension, 
                                                      n_input2=params['ndata'], n_output=xsh[1], n_channels=num_det, n_weights=n_weights_r2, 
                                                      drate=drate, n_filters=n_filters_r2, strides=conv_strides_r2, dilations=conv_dilations_r2,
-                                                     filter_size=filter_size_r2, maxpool=maxpool_r2, batch_norm=batch_norm, twod_conv=twod_conv, parallel_conv=parallel_conv)
+                                                     filter_size=filter_size_r2, maxpool=maxpool_r2, batch_norm=batch_norm, twod_conv=twod_conv)
         q_zxy = VI_encoder_q.VariationalAutoencoder('VI_encoder_q', n_input1=xsh[1], n_input2=params['ndata'], n_output=z_dimension, n_modes=n_modes_q,
                                                      n_channels=num_det, n_weights=n_weights_q, drate=drate, strides=conv_strides_q, dilations=conv_dilations_q,
-                                                     n_filters=n_filters_q, filter_size=filter_size_q, maxpool=maxpool_q, batch_norm=batch_norm, twod_conv=twod_conv, parallel_conv=parallel_conv) 
+                                                     n_filters=n_filters_q, filter_size=filter_size_q, maxpool=maxpool_q, batch_norm=batch_norm, twod_conv=twod_conv) 
 
         tf.set_random_seed(np.random.randint(0,10))
-
-        # add noise to the data - MUST apply normscale to noise !!!!
-        y_conv = y_ph + tf.random.normal([bs_ph,params['ndata'],num_det],0.0,1.0,dtype=tf.float32)/y_normscale
 
         # GET r1(z|y)
         # run inverse autoencoder to generate mean and logvar of z given y data - these are the parameters for r1(z|y)
@@ -787,9 +819,13 @@ def train(params, x_data, y_data, x_data_val, y_data_val, x_data_test, y_data_te
         if params['extra_lr_decay_factor'] and params['ramp'] and i>ramp_end :
             edf = 0.95
 
+        # Get batch of real noise segments
+        real_noise_batch = get_real_noise_batch(params)
+
         # train the network
         t0 = time.time()
-        session.run(minimize, feed_dict={bs_ph:bs, x_ph:next_x_data, y_ph:next_y_data, ramp:rmp, wramp:wrmp, skyramp:srmp, extra_lr_decay_factor:edf}) 
+        session.run(minimize, feed_dict={bs_ph:bs, x_ph:next_x_data, y_ph:next_y_data, ramp:rmp, wramp:wrmp, 
+                    skyramp:srmp, extra_lr_decay_factor:edf, real_noise:real_noise_batch}) 
         time_check += (time.time() - t0)
 
         # if we are in a report iteration extract cost function values

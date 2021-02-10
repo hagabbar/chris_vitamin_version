@@ -12,9 +12,6 @@ from os import path
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' 
 import argparse
 import numpy as np
-import tensorflow as tf
-from tensorflow.python.util import deprecation
-deprecation._PRINT_DEPRECATION_WARNINGS = False
 import scipy.io as sio
 import h5py
 import sys
@@ -35,25 +32,18 @@ from contextlib import contextmanager
 import json
 from lal import GreenwichMeanSiderealTime
 
-import skopt
-from skopt import gp_minimize, forest_minimize
-from skopt.space import Real, Categorical, Integer
-from skopt.plots import plot_convergence
-from skopt.plots import plot_objective, plot_evaluations
-from skopt.utils import use_named_args
+import tensorflow as tf
+from tensorflow.python.util import deprecation
+deprecation._PRINT_DEPRECATION_WARNINGS = False
 
 try:
     from .models import CVAE_model
-    from .gen_benchmark_pe import run, gen_real_noise
-    from . import plotting
-    from .plotting import prune_samples
-    from .models.neural_networks.vae_utils import convert_ra_to_hour_angle
+    from .gen_benchmark_pe import run
+    from .models.neural_networks.vae_utils import convert_ra_to_hour_angle, convert_hour_angle_to_ra
 except (ModuleNotFoundError, ImportError):
     from models import CVAE_model
-    from gen_benchmark_pe import run, gen_real_noise
-    import plotting
-    from plotting import prune_samples
-    from models.neural_networks.vae_utils import convert_ra_to_hour_angle
+    from gen_benchmark_pe import run
+    from models.neural_networks.vae_utils import convert_ra_to_hour_angle, convert_hour_angle_to_ra
 
 # Check for optional basemap installation
 try:
@@ -112,76 +102,6 @@ if args.bounds_file != None:
     bounds = args.bounds_file
 if args.fixed_vals_file != None:
     fixed_vals = args.fixed_vals_file
-
-# Ranges over which hyperparameter optimization parameters are allowed to vary
-kernel_1 = Integer(low=3, high=11, name='kernel_1')
-strides_1 = Integer(low=1, high=2, name='strides_1')
-pool_1 = Integer(low=1, high=2, name='pool_1')
-kernel_2 = Integer(low=3, high=11, name='kernel_2')
-strides_2 = Integer(low=1, high=2, name='strides_2')
-pool_2 = Integer(low=1, high=2, name='pool_2')
-kernel_3 = Integer(low=3, high=11, name='kernel_3')
-strides_3 = Integer(low=1, high=2, name='strides_3')
-pool_3 = Integer(low=1, high=2, name='pool_3')
-kernel_4 = Integer(low=3, high=11, name='kernel_4')
-strides_4 = Integer(low=1, high=2, name='strides_4')
-pool_4 = Integer(low=1, high=2, name='pool_4')
-kernel_5 = Integer(low=3, high=11, name='kernel_5')
-strides_5 = Integer(low=1, high=2, name='strides_5')
-pool_5 = Integer(low=1, high=2, name='pool_5')
-
-z_dimension = Integer(low=16, high=100, name='z_dimension')
-n_modes = Integer(low=2, high=50, name='n_modes')
-n_filters_1 = Integer(low=3, high=33, name='n_filters_1')
-n_filters_2 = Integer(low=3, high=33, name='n_filters_2')
-n_filters_3 = Integer(low=3, high=33, name='n_filters_3')
-n_filters_4 = Integer(low=3, high=33, name='n_filters_4')
-n_filters_5 = Integer(low=3, high=33, name='n_filters_5')
-batch_size = Integer(low=32, high=33, name='batch_size')
-n_weights_fc_1 = Integer(low=8, high=2048, name='n_weights_fc_1')
-n_weights_fc_2 = Integer(low=8, high=2048, name='n_weights_fc_2')
-n_weights_fc_3 = Integer(low=8, high=2048, name='n_weights_fc_3')
-
-num_r1_conv = Integer(low=1, high=5, name='num_r1_conv')
-num_r2_conv = Integer(low=1, high=5, name='num_r2_conv')
-num_q_conv = Integer(low=1, high=5, name='num_q_conv')
-num_r1_hidden = Integer(low=1, high=3, name='num_r1_hidden')
-num_r2_hidden = Integer(low=1, high=3, name='num_r2_hidden')
-num_q_hidden = Integer(low=1, high=3, name='num_q_hidden')
-
-# putting defined hyperparameter optimization ranges into a list
-dimensions = [kernel_1,
-              strides_1,
-              pool_1,
-              kernel_2,
-              strides_2,
-              pool_2,
-              kernel_3,
-              strides_3,
-              pool_3,
-              kernel_4,
-              strides_4,
-              pool_4,
-              kernel_5,
-              strides_5,
-              pool_5,
-              z_dimension,
-              n_modes,
-              n_filters_1,
-              n_filters_2,
-              n_filters_3,
-              n_filters_4,
-              n_filters_5,
-              batch_size,
-              n_weights_fc_1,
-              n_weights_fc_2,
-              n_weights_fc_3,
-              num_r1_conv,
-              num_r2_conv,
-              num_q_conv,
-              num_r1_hidden,
-              num_r2_hidden,
-              num_q_hidden]
 
 # dummy value for initial hyperparameter best KL (to be minimized). Doesn't need to be changed.
 best_loss = int(1994)
@@ -291,6 +211,7 @@ def load_data(params,bounds,fixed_vals,input_dir,inf_pars,test_data=False):
 
     snrs = np.array(snrs)
     # Extract the prior bounds from training/testing files
+    print(np.array(data['x_data']).shape)
     data['x_data'] = np.concatenate(np.array(data['x_data']), axis=0).squeeze()
     data['y_data_noisefree'] = np.concatenate(np.array(data['y_data_noisefree']), axis=0)
     data['y_data_noisy'] = np.concatenate(np.array(data['y_data_noisy']), axis=0)
@@ -373,7 +294,7 @@ def gen_rnoise(params=params,bounds=bounds,fixed_vals=fixed_vals):
         fixed_vals = json.load(fp)
 
     # Make training set directory
-    os.system('mkdir -p %s' % params['train_set_dir'])
+    os.system('mkdir -p %s' % (params['train_set_dir']+'_'+params['det'][0]))
 
     # Make directory for plots
     os.system('mkdir -p %s/latest_%s' % (params['plot_dir'],params['run_label']))
@@ -382,38 +303,83 @@ def gen_rnoise(params=params,bounds=bounds,fixed_vals=fixed_vals):
     print('... Making real noise samples')
     print()
 
+    # Get all frame files 
+    frame_list = []
+    for path, subdirs, files in os.walk('/hdfs/frames/O1/hoft_C01_4kHz/%s' % params['det'][0]):
+        for name in files:
+            frame_list.append(os.path.join(path, name))
+
+    # load an initial frame file
+    from gwpy.timeseries import TimeSeries
+    frame_det = frame_list[0].split('/')[-1].split('-')[0]
+    frame_file = TimeSeries.read(frame_list[0], '%s1:DCS-CALIB_STRAIN_C01' % frame_det, nproc=10)
+    frame_file = TimeSeries.resample(frame_file, params['ndata'])  
+
     # continue producing noise samples until requested number has been fullfilled
-    stop_flag = False; idx = time_cnt = 0
-    start_file_seg = params['real_noise_time_range'][0]
-    end_file_seg = None
+    stop_flag = False; idx = time_cnt = frame_idx = 0
+    num_rand_frame_idx = 400
+    frame_idx_list = np.random.randint(0, len(frame_file)-params['ndata'], size=num_rand_frame_idx)
+
+    # compute the number of time domain samples
+    Nt = int(params['ndata']*params['duration'])
+    psd_files = params['psd_files']
+    end_file_seg = int(params['tot_dataset_size'])
+
     # iterate until we get the requested number of real noise samples
-    while idx <= params['tot_dataset_size'] or stop_flag:
+    while idx < params['tot_dataset_size'] or stop_flag:
 
 
         file_samp_idx = 0
+        real_noise_data = np.zeros((int(params['tset_split']),int( params['ndata']*params['duration'])))
         # iterate until we get the requested number of real noise samples per tset_split files
-        while file_samp_idx <= params['tset_split']:
-            real_noise_seg = [start_file_seg+idx+time_cnt, start_file_seg+idx+time_cnt+1]
-            real_noise_data = np.zeros((int(params['tset_split']),int( params['ndata']*params['duration'])))        
+        while file_samp_idx < params['tset_split']:
 
-            try:
-                # make the data - shift geocent time to correct reference
-                real_noise_data[file_samp_idx, :] = gen_real_noise(params['duration'],params['ndata'],params['det'],
-                                        params['ref_geocent_time'],params['psd_files'],
-                                        real_noise_seg=real_noise_seg
-                                        )
-                print('Found segment')
-            except ValueError as e:
-                print(e)
-                time_cnt+=1
-                continue
-            print(real_noise_data)
-            exit()
+            if frame_idx == len(frame_idx_list):
+                np.random.shuffle(frame_list)
+                print('Loading: ' + frame_list[0]+'...')
+                frame_det = frame_list[0].split('/')[-1].split('-')[0]
+                frame_file = TimeSeries.read(frame_list[0], '%s1:DCS-CALIB_STRAIN_C01' % frame_det, nproc=20)
+                frame_file = TimeSeries.resample(frame_file, params['ndata'])
+                frame_idx = 0    
+                frame_idx_list = np.random.randint(0, len(frame_file)-params['ndata'], size=num_rand_frame_idx)
 
-        print("Generated: %s/data_%d-%d.h5py ..." % (params['train_set_dir'],start_file_seg,end_file_seg))
+            logging.config.dictConfig({
+            'version': 1,
+            'disable_existing_loggers': True,
+            })
+ 
+#            with suppress_stdout():
+            time_series = frame_file[frame_idx_list[frame_idx]:frame_idx_list[frame_idx]+params['ndata']]
+            # Get ifos bilby variable
+            ifos = bilby.gw.detector.InterferometerList(params['det'])
 
+            # If user is specifying PSD files
+            if len(psd_files) > 0:
+                type_psd = psd_files[0].split('/')[-1].split('_')[-1].split('.')[0]
+                if type_psd == 'psd':
+                    ifos[0].power_spectral_density = bilby.gw.detector.PowerSpectralDensity(psd_file=psd_files[0])
+                elif type_psd == 'asd':
+                    ifos[0].power_spectral_density = bilby.gw.detector.PowerSpectralDensity(asd_file=psd_files[0])
+                else:
+                    print('Could not determine whether psd or asd ...')
+                    exit()
+
+            ifos[0].set_strain_data_from_gwpy_timeseries(time_series=time_series) # input new ts into bilby ifo
+            noise_sample = ifos[0].strain_data.frequency_domain_strain # get frequency domain strain
+            noise_sample /= ifos[0].amplitude_spectral_density_array # assume default psd from bilby
+            noise_sample = np.sqrt(2.0*Nt)*np.fft.irfft(noise_sample) # convert frequency to time domain
+            real_noise_data[file_samp_idx, :] = noise_sample
+
+            logging.config.dictConfig({
+            'version': 1,
+            'disable_existing_loggers': False,
+            })
+
+            file_samp_idx+=1; frame_idx+=1
+
+        print("Generated: %s/data_%d-%d.h5py ..." % (params['train_set_dir']+'_'+params['det'][0],idx+params['tset_split'],end_file_seg))
         # store noise sample information in hdf5 format
-        hf = h5py.File('%s/data_%d-%d.h5py' % (params['train_set_dir'],start_file_seg,end_file_seg), 'w')
+        hf = h5py.File('%s/data_%d-%d.h5py' % (params['train_set_dir']+'_'+params['det'][0],idx+params['tset_split'],end_file_seg), 'w')
         hf.create_dataset('real_noise_samples', data=real_noise_data)
         hf.close()
         idx+=params['tset_split']
@@ -421,7 +387,9 @@ def gen_rnoise(params=params,bounds=bounds,fixed_vals=fixed_vals):
         # stop training
         if idx>params['real_noise_time_range'][1]:
             stop_flat = True  
-        exit()
+    print()
+    print('Finished generating real noise samples')
+    print()
     return 
 
 def gen_train(params=params,bounds=bounds,fixed_vals=fixed_vals):
@@ -723,16 +691,21 @@ def train(params=params,bounds=bounds,fixed_vals=fixed_vals,resume_training=Fals
     print('... loaded in the validation data')
 
     # load the noisy testing data back in
-    x_data_test, y_data_test_noisefree, y_data_test, snrs_test = load_data(params,bounds,fixed_vals,params['test_set_dir'],params['inf_pars'],test_data=True)
-    print('... loaded in the testing data')
-    for x in x_data_test:
-        print(x)
+#    x_data_test, y_data_test_noisefree, y_data_test, snrs_test = load_data(params,bounds,fixed_vals,params['test_set_dir'],params['inf_pars'],test_data=True)
+#    print('... loaded in the testing data')
+#    for x in x_data_test:
+#        print(x)
+   
+
+    x_data_test = x_data_train[:1,:]
+    y_data_test = y_data_train[0,:1,:,:]
+    y_data_test_noisefree = snrs_test = None
 
     # reshape time series arrays for single channel ( N_samples,fs*duration,n_detectors -> (N_samples,fs*duration*n_detectors) )
     y_data_train = y_data_train.reshape(y_data_train.shape[0]*y_data_train.shape[1],y_data_train.shape[2]*y_data_train.shape[3])
     y_data_val = y_data_val.reshape(y_data_val.shape[0]*y_data_val.shape[1],y_data_val.shape[2]*y_data_val.shape[3])
     y_data_test = y_data_test.reshape(y_data_test.shape[0],y_data_test.shape[1]*y_data_test.shape[2])
-    y_data_test_noisefree = y_data_test_noisefree.reshape(y_data_test_noisefree.shape[0],y_data_test_noisefree.shape[1]*y_data_test_noisefree.shape[2])
+#    y_data_test_noisefree = y_data_test_noisefree.reshape(y_data_test_noisefree.shape[0],y_data_test_noisefree.shape[1]*y_data_test_noisefree.shape[2])
     print('... reshaped train,val,test y-data -> (N_samples,fs*duration*n_detectors)')
 
     # Make directory for plots
@@ -802,16 +775,16 @@ def train(params=params,bounds=bounds,fixed_vals=fixed_vals,resume_training=Fals
     # reshape y data into channels last format for convolutional approach (if requested)
     if params['n_filters_r1'] != None:
         y_data_test_copy = np.zeros((y_data_test.shape[0],params['ndata'],len(params['det'])))
-        y_data_test_noisefree_copy = np.zeros((y_data_test_noisefree.shape[0],params['ndata'],len(params['det'])))
+#        y_data_test_noisefree_copy = np.zeros((y_data_test_noisefree.shape[0],params['ndata'],len(params['det'])))
         y_data_train_copy = np.zeros((y_data_train.shape[0],params['ndata'],len(params['det'])))
         y_data_val_copy = np.zeros((y_data_val.shape[0],params['ndata'],len(params['det'])))
         for i in range(y_data_test.shape[0]):
             for j in range(len(params['det'])):
                 idx_range = np.linspace(int(j*params['ndata']),int((j+1)*params['ndata'])-1,num=params['ndata'],dtype=int)
                 y_data_test_copy[i,:,j] = y_data_test[i,idx_range]
-                y_data_test_noisefree_copy[i,:,j] = y_data_test_noisefree[i,idx_range]
+#                y_data_test_noisefree_copy[i,:,j] = y_data_test_noisefree[i,idx_range]
         y_data_test = y_data_test_copy
-        y_data_noisefree_test = y_data_test_noisefree_copy
+#        y_data_noisefree_test = y_data_test_noisefree_copy
 
         for i in range(y_data_train.shape[0]):
             for j in range(len(params['det'])):

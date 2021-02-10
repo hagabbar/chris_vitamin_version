@@ -52,34 +52,6 @@ def parser():
 
     return parser.parse_args()
 
-def gen_real_noise(duration,
-                 sampling_frequency,
-                 det,
-                 ref_geocent_time, psd_files=[],
-                 real_noise_seg =[None,None]
-                 ):
-    """ pull real noise samples
-    """
-
-    # compute the number of time domain samples
-    Nt = int(sampling_frequency*duration)
-
-    # Get ifos bilby variable
-    ifos = bilby.gw.detector.InterferometerList(det)
-
-    start_open_seg, end_open_seg = real_noise_seg # 1 sec noise segments
-    for ifo_idx,ifo in enumerate(ifos): # iterate over interferometers
-        time_series = TimeSeries.find('%s:GDS-CALIB_STRAIN' % det[ifo_idx],
-                      start_open_seg, end_open_seg) # pull timeseries data using gwpy
-        ifo.set_strain_data_from_gwpy_timeseries(time_series=time_series) # input new ts into bilby ifo
-
-    noise_sample = ifos[0].strain_data.frequency_domain_strain # get frequency domain strain
-    noise_sample /= ifos[0].amplitude_spectral_density_array # assume default psd from bilby
-    noise_sample = np.sqrt(2.0*Nt)*np.fft.irfft(noise_sample) # convert frequency to time domain
-
-    return noise_sample
-    
-
 def gen_template(duration,
                  sampling_frequency,
                  pars,
@@ -95,7 +67,6 @@ def gen_template(duration,
         duration of the signal in seconds
     sampling_frequency: float
         sampling frequency of the signal
-B
     pars: dict
         values of source parameters for the waveform
     ref_geocent_time: float
@@ -370,7 +341,8 @@ def run(sampling_frequency=256.0,
     # generate training samples
     if training == True:
         train_samples = real_noise_array = []
-        train_pars = snrs = []
+        snrs = []
+        train_pars = np.zeros((N_gen, len(rand_pars)))
         for i in range(N_gen):
             
             # sample from priors
@@ -383,7 +355,8 @@ def run(sampling_frequency=256.0,
                 for q,qi in pars.items():
                     if p==q:
                         temp.append(qi-ref_geocent_time) if p=='geocent_time' else temp.append(qi)
-            train_pars.append([temp])
+#            train_pars.append([temp])
+            train_pars[i,:] = temp
 
             # make the data - shift geocent time to correct reference
             train_samp_noisefree, train_samp_noisy,_,ifos,_ = gen_template(duration,sampling_frequency,
@@ -397,8 +370,8 @@ def run(sampling_frequency=256.0,
             print('Made waveform %d/%d' % (i,N_gen)) 
 
         train_samples_noisefree = np.array(train_samples)[:,0,:]
-        snrs = np.array(snrs) 
-        return train_samples_noisefree,np.array(train_pars),snrs
+        snrs = np.array(snrs)
+        return train_samples_noisefree,train_pars,snrs
 
     # otherwise we are doing test data 
     else:
