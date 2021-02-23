@@ -37,7 +37,7 @@ class VariationalAutoencoder(object):
             conv_post_1 = self.nonlinearity(conv_1)
             
             conv_2a = tf.add(tf.nn.conv2d(conv_post_1a, self.weights['VI_rnn'][weight_name+'2a'],strides=2,padding='SAME'),self.weights['VI_rnn'][bias_name+'2a'])
-            conv_2b = tf.nn.conv2d(X, self.weights['VI_rnn'][weight_name_'2b'],strides=4,padding='SAME')
+            conv_2b = tf.nn.conv2d(X, self.weights['VI_rnn'][weight_name+'2b'],strides=4,padding='SAME')
             conv_post_2 = self.nonlinearity(conv_2a+conv_2b)
 
             conv_3a = tf.add(tf.nn.conv2d(conv_post_2, self.weights['VI_rnn'][weight_name+'3a'],strides=2,padding='SAME'),self.weights['VI_rnn'][bias_name+'3a'])

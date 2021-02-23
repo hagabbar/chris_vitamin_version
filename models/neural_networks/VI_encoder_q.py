@@ -161,5 +161,7 @@ class VariationalAutoencoder(object):
             tf.summary.histogram('b_weight', all_weights['VI_encoder_q']['b_weight'])
 
             all_weights['prior_param'] = collections.OrderedDict()
+
+            all_weights['prior_param'] = collections.OrderedDict()
         
         return all_weights

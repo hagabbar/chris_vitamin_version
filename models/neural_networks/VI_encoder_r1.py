@@ -48,7 +48,6 @@ class VariationalAutoencoder(object):
         network_weights = self._create_weights()
         self.weights = network_weights
 
-
     def _calc_z_mean_and_sigma(self,x, training=True):
         with tf.name_scope("VI_encoder_r1"):
 
@@ -113,7 +112,7 @@ class VariationalAutoencoder(object):
             tf.summary.histogram('loc', loc)
             tf.summary.histogram('scale_diag', scale_diag)
             tf.summary.histogram('weight', weight)
-            return tf.reshape(loc,(-1,self.n_modes,self.n_output)), tf.reshape(scale_diag,(-1,self.n_modes,self.n_output)), tf.reshape(weight,(-1,self.n_modes))    
+            return tf.reshape(loc,(-1,self.n_modes,self.n_output)), tf.reshape(scale_diag,(-1,self.n_modes,self.n_output)), tf.reshape(weight,(-1,self.n_modes)) 
 
     def _create_weights(self):
         all_weights = collections.OrderedDict()

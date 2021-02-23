@@ -63,6 +63,7 @@ class VariationalAutoencoder(object):
         self.weights = network_weights
 
     def calc_reconstruction(self, z, y, training=True):
+
         with tf.name_scope("VI_decoder_r2"):
 
             # Reshape input to a 3D tensor - single channel
@@ -132,7 +133,7 @@ class VariationalAutoencoder(object):
             scale_wrap = -1.0*self.nonlinear_scale_wrap(tf.boolean_mask(scale_all,self.wrap_mask,axis=1))
             loc_sky = self.nonlinear_loc_sky(tf.boolean_mask(loc_all,self.sky_mask + [True],axis=1))        # add an extra element to the mask for the 3rd sky parameter
             scale_sky = -1.0*self.nonlinear_scale_sky(tf.boolean_mask(scale_all,self.sky_mask,axis=1))      # send back both params but we wil only use 1
-            return loc_nowrap, scale_nowrap, loc_wrap, scale_wrap, loc_m1, scale_m1, loc_m2, scale_m2, loc_sky, scale_sky   
+            return loc_nowrap, scale_nowrap, loc_wrap, scale_wrap, loc_m1, scale_m1, loc_m2, scale_m2, loc_sky, scale_sky  
 
     def _create_weights(self):
         all_weights = collections.OrderedDict()
@@ -175,8 +176,7 @@ class VariationalAutoencoder(object):
             all_weights['VI_decoder_r2']['w_scale'] = tf.Variable(vae_utils.xavier_init(self.n_weights[-1], self.n_output),dtype=tf.float32) # leaves 1 redundent paramster for sky
             all_weights['VI_decoder_r2']['b_scale'] = tf.Variable(tf.zeros([self.n_output], dtype=tf.float32), dtype=tf.float32)  # leaves 1 redundent paramster for sky
             tf.summary.histogram('w_scale', all_weights['VI_decoder_r2']['w_scale'])
-            tf.summary.histogram('b_scale', all_weights['VI_decoder_r2']['b_scale'])
-            
+            tf.summary.histogram('b_scale', all_weights['VI_decoder_r2']['b_scale']) 
             all_weights['prior_param'] = collections.OrderedDict()
         
         return all_weights

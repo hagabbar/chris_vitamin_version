@@ -74,52 +74,54 @@ bounds = {'mass_1_min':35.0, 'mass_1_max':80.0,
         '__definition__luminosity_distance': 'luminosity distance range'}
 
 # arbitrary value for normalization of timeseries (Don't change this)
-y_normscale = 36.0
+y_normscale = 16.638832624721797
 
 ##########################
 # Main tunable variables
 ##########################
 ndata = 1024                                                                     
-det=['L1']                                                            
-psd_files=[] 
+det=['H1','L1','V1']                                                            
+psd_files=['cuda_11_env/lib/python3.6/site-packages/bilby/gw/detector/noise_curves/aLIGO_O4_high_asd.txt'] 
 rand_pars = ['mass_1','mass_2','luminosity_distance','geocent_time','phase',
-                 'theta_jn','psi','a_1','a_2','tilt_1','tilt_2','phi_12','phi_jl']                                   
-inf_pars=['mass_1','mass_2','luminosity_distance','geocent_time','theta_jn','psi','a_1','a_2','tilt_1','tilt_2','phi_12','phi_jl'] 
+                 'theta_jn','psi','a_1','a_2','tilt_1','tilt_2','phi_12','phi_jl','ra','dec']                                   
+bilby_pars = ['mass_1','mass_2','luminosity_distance','geocent_time','theta_jn','psi','a_1','a_2',
+          'tilt_1','tilt_2','phi_12','phi_jl']
+inf_pars=['mass_1','mass_2','luminosity_distance','geocent_time','theta_jn','psi','ra','dec'] 
 #rand_pars = ['mass_1','mass_2','luminosity_distance','geocent_time','phase',
 #                 'theta_jn','psi','ra','dec']
 #inf_pars=['mass_1','mass_2','luminosity_distance','geocent_time','theta_jn','ra','dec']
-batch_size = 8                                                                 
+batch_size = int(512)                                                                 
 weight_init = 'xavier'                                                            
-n_modes=64; n_modes_q=1                                                                      
+n_modes=32; n_modes_q=1                                                                      
 initial_training_rate=1e-4                                                     
 batch_norm=False                                                                
 
 # FYI, each item in lists below correspond to each layer in networks (i.e. first item first layer)
 # pool size and pool stride should be same number in each layer
-n_filters_r1 = [64,48]                                                        
-n_filters_r2 = [64,48]                                                        
-n_filters_q = [64,48]                                                         
-filter_size_r1 = [11,9]                                                         
-filter_size_r2 = [11,9]                                                        
-filter_size_q = [11,9]                                                          
-drate = 0.2                                                                    
-maxpool_r1 = [1,2]                                                             
-conv_strides_r1 = [1,1]                                                        
-pool_strides_r1 = [1,2]
-conv_dilations_r1=[1,1]                                                        
-maxpool_r2 = [1,2]                                                             
-conv_strides_r2 = [1,1]                                                        
-pool_strides_r2 = [1,2]
-conv_dilations_r2=[1,1]                                                        
-maxpool_q = [1,2]                                                              
-conv_strides_q = [1,1]                                                         
-pool_strides_q = [1,2] 
-conv_dilations_q=[1,1]                                                        
+n_filters_r1 = [32,32,32,32]                                                        
+n_filters_r2 = [32,32,32,32]                                                        
+n_filters_q = [32,32,32,32]                                                         
+filter_size_r1 = [5,5,5,5]                                                         
+filter_size_r2 = [5,5,5,5]                                                        
+filter_size_q = [5,5,5,5]                                                          
+drate = 0.0                                                                    
+maxpool_r1 = [1,2,1,2]                                                             
+conv_strides_r1 = [1,1,1,1]                                                        
+pool_strides_r1 = [1,2,1,2]
+conv_dilations_r1=[1,1,1,1]                                                        
+maxpool_r2 = [1,2,1,2]                                                             
+conv_strides_r2 = [1,1,1,1]                                                        
+pool_strides_r2 = [1,2,1,2]
+conv_dilations_r2=[1,1,1,1]                                                        
+maxpool_q = [1,2,1,2]                                                              
+conv_strides_q = [1,1,1,1]                                                         
+pool_strides_q = [1,2,1,2] 
+conv_dilations_q=[1,1,1,1]                                                        
 n_fc = 1024                                                                      
-z_dimension=14                                                                  
-n_weights_r1 = [n_fc,n_fc]                                                     
-n_weights_r2 = [n_fc,n_fc]                                                     
-n_weights_q = [n_fc,n_fc]                                                      
+z_dimension=8                                                                  
+n_weights_r1 = [n_fc,n_fc,n_fc]                                                     
+n_weights_r2 = [n_fc,n_fc,n_fc]                                                     
+n_weights_q = [n_fc,n_fc,n_fc]                                                      
 ##########################
 # Main tunable variables
 ##########################
@@ -127,37 +129,38 @@ n_weights_q = [n_fc,n_fc]
 #############################
 # optional tunable variables
 #############################
-run_label = 'realnoise_testing'#'demo_%ddet_%dpar_%dHz_hour_angle_with_late_kl_start' % (len(det),len(rand_pars),ndata) 
+run_label = 'vitamin_c_run2'#'demo_%ddet_%dpar_%dHz_hour_angle_with_late_kl_start' % (len(det),len(rand_pars),ndata) 
 
 # 1024 Hz label
 #bilby_results_label = 'weichangfeng_theta_jn_issue'                                             
 # 256 Hz label
-bilby_results_label = 'realnoise_testing'
+bilby_results_label = '1024Hz_full_15par'
 
-r = 1                                                          
+r = 4                                                          
 pe_test_num = 256                                                               
-tot_dataset_size = int(1e3)                                                     
+tot_dataset_size = int(1e7)                                                     
 tset_split = int(1e3)                                                           
-save_interval = int(1e3)                                                        
-num_iterations=int(1e6)+1                                                       
+save_interval = int(2.5e4)                                                        
+num_iterations=int(1e7)+1                                                       
 ref_geocent_time=1126259642.5                                                   
-load_chunk_size = 1e3                                                           
+load_chunk_size = int(1e5)                                                           
 samplers=['vitamin','dynesty']                                                  
+val_dataset_size = int(1e3)
 
 # Directory variables
 plot_dir='/home/hunter.gabbard/public_html/CBC/chris_dec2020_vitamin/%s' % run_label  
 
 # Training/testing for 1024 Hz full par case
-#train_set_dir='/home/hunter.gabbard/CBC/public_VItamin/provided_models/vitamin_b/vitamin_b/training_sets_3det_15par_1024Hz/tset_tot-10000000_split-1000_O4PSDH1L1_AdvVirgoPSD'
-#val_set_dir='./validation_sets_3det_15par_1024Hz/tset_tot-1000_split-1000'
-#test_set_dir = '/home/hunter.gabbard/CBC/public_VItamin/provided_models/vitamin_b/vitamin_b/test_sets/1024_khz_spins_included_15par/test_waveforms'
-#pe_dir='/home/hunter.gabbard/CBC/public_VItamin/provided_models/vitamin_b/vitamin_b/test_sets/1024_khz_spins_included_15par/test'
+train_set_dir='/home/hunter.gabbard/CBC/public_VItamin/provided_models/vitamin_b/vitamin_b/training_sets_3det_15par_1024Hz/tset_tot-10000000_split-1000_O4PSDH1L1_AdvVirgoPSD'
+val_set_dir='./validation_sets_3det_15par_1024Hz/tset_tot-1000_split-1000'
+test_set_dir = '/home/hunter.gabbard/CBC/public_VItamin/provided_models/vitamin_b/vitamin_b/test_sets/1024_khz_spins_included_15par/test_waveforms'
+pe_dir='/home/hunter.gabbard/CBC/public_VItamin/provided_models/vitamin_b/vitamin_b/test_sets/1024_khz_spins_included_15par/test'
 
 # default training/testing directories
-train_set_dir='./training_sets_realnoise_%ddet_%dpar_%dHz/tset_tot-%d_split-%d' % (len(det),len(rand_pars),ndata,tot_dataset_size,tset_split)
-val_set_dir='./validation_sets_realnoise_%ddet_%dpar_%dHz/tset_tot-%d_split-%d' % (len(det),len(rand_pars),ndata,tot_dataset_size,tset_split) 
-test_set_dir = './test_sets/%s/test_waveforms' % bilby_results_label
-pe_dir='./test_sets/%s/test' % bilby_results_label
+#train_set_dir='./training_sets_realnoise_%ddet_%dpar_%dHz/tset_tot-%d_split-%d' % (len(det),len(rand_pars),ndata,tot_dataset_size,tset_split)
+#val_set_dir='./validation_sets_realnoise_%ddet_%dpar_%dHz/tset_tot-%d_split-%d' % (len(det),len(rand_pars),ndata,tot_dataset_size,tset_split) 
+#test_set_dir = './test_sets/%s/test_waveforms' % bilby_results_label
+#pe_dir='./test_sets/%s/test' % bilby_results_label
 
 #############################
 # optional tunable variables
@@ -167,7 +170,13 @@ def get_params():
 
     # Define dictionary to store values used in rest of code 
     params = dict(
-        parallel_conv=True,
+        val_dataset_size = val_dataset_size,
+        __definition__val_dataset_size='validation dataset total size',
+        bilby_pars=bilby_pars,
+        __definition__bilby_pars='parameters for bilby to infer',
+        vitamin_c = True,
+        __definition__vitamin_c='If True, use new vitamin_c version of code with keras',
+        parallel_conv=False,
         __definition__parallel_conv='if true analyse detectors separately in convolutions, otherwise as channels',
         extra_lr_decay_factor=False,
         __definition__extra_decay_factor='Use an extra decay factor of 0.96 after every load iteration',
@@ -185,7 +194,7 @@ def get_params():
         __definition__conv_dilations_q='size of convolutional dilation to use in q network', 
         hour_angle_range=[-3.813467684252483,2.469671758574231],
         __definition__hour_angle_range='min and max range of hour angle space',
-        use_real_det_noise=True,
+        use_real_det_noise=False,
         __definition__use_real_det_noise='If True, use real detector noise around reference time',
         real_noise_time_range = [1126051217, 1137254417],
         __definition__real_noise_time_range = 'time range to produce real noise samples over',
@@ -219,7 +228,7 @@ def get_params():
         __definition__load_plot_data='Use plotting data which has already been generated',
         doPE = True,                                                            
         __definition__doPE='if True then do bilby PE when generating new testing samples',
-        gpu_num=2,                                                              
+        gpu_num=1,                                                              
         __definition__gpu_num='gpu number run is running on',
         ndata = ndata,                                                          
         __definition__ndata='sampling frequency',
@@ -340,6 +349,8 @@ def get_params():
         __definition__training_data_seed='tensorflow training random seed number',
         testing_data_seed=44,                                                   
         __definition__testing_data_seed=' tensorflow testing random seed number',
+        validation_data_seed=45,
+        __definition__validation_data_seed='Seed for validation data',
         inf_pars=inf_pars,        
         __definition__inf_pars='parameters to infer',                                              
         train_set_dir=train_set_dir,
@@ -358,13 +369,11 @@ def get_params():
         __definition__figure_sampler_names='matplotlib figure sampler labels (e.g. [ptemcee,CPNest,emcee])',
         y_normscale = y_normscale,
         __definition__y_normscale='arbitrary normalization factor on all time series waveforms (helps convergence in training)',
-        boost_pars=['ra','dec'],
-        __definition__boost_pars='parameters to boost during training (by default this is off)',
-        gauss_pars=['luminosity_distance','geocent_time','theta_jn','a_1','a_2','tilt_1','tilt_2'],         
+        gauss_pars=['luminosity_distance','geocent_time','theta_jn','a_1','a_2','tilt_1','tilt_2','ra','dec'],         
         __definition__gauss_pars='parameters that require a truncated gaussian distribution',
         vonmise_pars=['phase','psi','phi_12','phi_jl'],                                        
         __definition__vonmises_pars='parameters that get wrapped on the 1D parameter', 
-        sky_pars=['ra','dec'],                                              
+        sky_pars=[],                                              
         __definition__sky_pars='sky parameters',
         det=det,
         __definition__det='LIGO detectors to perform analysis on (default is 3detector H1,L1,V1)',

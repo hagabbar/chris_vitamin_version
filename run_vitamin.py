@@ -36,7 +36,7 @@ import json
 from lal import GreenwichMeanSiderealTime
 
 import skopt
-from skopt import gp_minimize, forest_minimize
+from skopt import gp_minimize, forest_minimize, dump
 from skopt.space import Real, Categorical, Integer
 from skopt.plots import plot_convergence
 from skopt.plots import plot_objective, plot_evaluations
@@ -45,13 +45,13 @@ from skopt.utils import use_named_args
 try:
     from .models import CVAE_model
     from .gen_benchmark_pe import run, gen_real_noise
-    from . import plotting
+    from . import plotting, vitamin_c
     from .plotting import prune_samples
     from .models.neural_networks.vae_utils import convert_ra_to_hour_angle
 except (ModuleNotFoundError, ImportError):
     from models import CVAE_model
     from gen_benchmark_pe import run, gen_real_noise
-    import plotting
+    import plotting, vitamin_c
     from plotting import prune_samples
     from models.neural_networks.vae_utils import convert_ra_to_hour_angle
 
@@ -114,77 +114,162 @@ if args.fixed_vals_file != None:
     fixed_vals = args.fixed_vals_file
 
 # Ranges over which hyperparameter optimization parameters are allowed to vary
-kernel_1 = Integer(low=3, high=11, name='kernel_1')
-strides_1 = Integer(low=1, high=2, name='strides_1')
-pool_1 = Integer(low=1, high=2, name='pool_1')
-kernel_2 = Integer(low=3, high=11, name='kernel_2')
-strides_2 = Integer(low=1, high=2, name='strides_2')
-pool_2 = Integer(low=1, high=2, name='pool_2')
-kernel_3 = Integer(low=3, high=11, name='kernel_3')
-strides_3 = Integer(low=1, high=2, name='strides_3')
-pool_3 = Integer(low=1, high=2, name='pool_3')
-kernel_4 = Integer(low=3, high=11, name='kernel_4')
-strides_4 = Integer(low=1, high=2, name='strides_4')
-pool_4 = Integer(low=1, high=2, name='pool_4')
-kernel_5 = Integer(low=3, high=11, name='kernel_5')
-strides_5 = Integer(low=1, high=2, name='strides_5')
-pool_5 = Integer(low=1, high=2, name='pool_5')
-
-z_dimension = Integer(low=16, high=100, name='z_dimension')
-n_modes = Integer(low=2, high=50, name='n_modes')
-n_filters_1 = Integer(low=3, high=33, name='n_filters_1')
-n_filters_2 = Integer(low=3, high=33, name='n_filters_2')
-n_filters_3 = Integer(low=3, high=33, name='n_filters_3')
-n_filters_4 = Integer(low=3, high=33, name='n_filters_4')
-n_filters_5 = Integer(low=3, high=33, name='n_filters_5')
-batch_size = Integer(low=32, high=33, name='batch_size')
-n_weights_fc_1 = Integer(low=8, high=2048, name='n_weights_fc_1')
-n_weights_fc_2 = Integer(low=8, high=2048, name='n_weights_fc_2')
-n_weights_fc_3 = Integer(low=8, high=2048, name='n_weights_fc_3')
-
-num_r1_conv = Integer(low=1, high=5, name='num_r1_conv')
-num_r2_conv = Integer(low=1, high=5, name='num_r2_conv')
-num_q_conv = Integer(low=1, high=5, name='num_q_conv')
-num_r1_hidden = Integer(low=1, high=3, name='num_r1_hidden')
-num_r2_hidden = Integer(low=1, high=3, name='num_r2_hidden')
-num_q_hidden = Integer(low=1, high=3, name='num_q_hidden')
+r1_filter_num = Integer(low=2, high=64, name='r1_filter_num')
+r1_filter_size = Integer(low=2, high=33, name='r1_filter_size')
 
 # putting defined hyperparameter optimization ranges into a list
-dimensions = [kernel_1,
-              strides_1,
-              pool_1,
-              kernel_2,
-              strides_2,
-              pool_2,
-              kernel_3,
-              strides_3,
-              pool_3,
-              kernel_4,
-              strides_4,
-              pool_4,
-              kernel_5,
-              strides_5,
-              pool_5,
-              z_dimension,
-              n_modes,
-              n_filters_1,
-              n_filters_2,
-              n_filters_3,
-              n_filters_4,
-              n_filters_5,
-              batch_size,
-              n_weights_fc_1,
-              n_weights_fc_2,
-              n_weights_fc_3,
-              num_r1_conv,
-              num_r2_conv,
-              num_q_conv,
-              num_r1_hidden,
-              num_r2_hidden,
-              num_q_hidden]
+dimensions = [r1_filter_num, r1_filter_size]
 
 # dummy value for initial hyperparameter best KL (to be minimized). Doesn't need to be changed.
-best_loss = int(1994)
+best_loss = int(1e5)
+
+@use_named_args(dimensions=dimensions)
+def hyperparam_fitness(r1_filter_num, r1_filter_size):
+    """ Fitness function used in Gaussian Process hyperparameter optimization 
+    Returns a value to be minimized (in this case, the total loss of the 
+    neural network during training.
+    Parameters
+    ----------
+    Returns
+    -------
+    VICI_loss: float
+        Total loss of the current optimized network
+    """
+
+    global params, bounds, fixed_vals
+    global x_data_train, y_data_train, x_data_test, y_data_test, y_normscale, y_data_test_noisefree, XS_all, x_data_val, y_data_val
+    global cur_hyperparam_iter, snrs_test
+
+    # Check for requried parameters files
+    if params == None or bounds == None or fixed_vals == None:
+        print('Missing either params file, bounds file or fixed vals file')
+        exit()
+
+    try :
+        # Load parameters files
+        with open(params, 'r') as fp:
+            params = json.load(fp)
+        with open(bounds, 'r') as fp:
+            bounds = json.load(fp)
+        with open(fixed_vals, 'r') as fp:
+            fixed_vals = json.load(fp)
+    except TypeError:
+        print('Already loaded params files. Skipping ...')
+
+    # set tunable hyper-parameters
+    params['filter_size_r1'] = [r1_filter_size] * len(params['filter_size_r1'])
+    params['n_filters_r1'] = [r1_filter_num] * len(params['n_filters_r1'])
+
+    # Print the hyper-parameters.
+    print('filter_size_r1: {}'.format(params['filter_size_r1']))
+    print('n_filters_r1: {}'.format(params['n_filters_r1']))
+    print()
+
+    # Update load iteration accoring to new batch size
+    params['load_iteration'] = int((params['load_chunk_size'] * 25)/params['batch_size'])
+    params['plot_interval'] = 5e6 
+
+    start_time = time.time()
+    print('start time: {}'.format(strftime('%X %x %Z'))) 
+
+     # Make best run directory if it does not already exist
+    if not path.exists("inverse_model_dir_%s/best_model" % (params['run_label'])):
+        os.mkdir("inverse_model_dir_%s" % (params['run_label']))
+        os.mkdir("inverse_model_dir_%s/best_model" % (params['run_label']))
+    else:
+        pass
+
+    # Make run directory
+    if not path.exists("inverse_model_dir_%s/run_%d/" % (params['run_label'],cur_hyperparam_iter)):
+        os.mkdir("inverse_model_dir_%s/run_%d/" % (params['run_label'],cur_hyperparam_iter))
+    else:
+        pass
+
+    # Perform training
+    try:
+        CVAE_loss = vitamin_c.run_vitc(params, x_data_train, y_data_train,
+                               x_data_val, y_data_val,
+                               x_data_test, y_data_test, y_data_test_noisefree,
+                               "inverse_model_dir_%s/inverse_model.ckpt" % params['run_label'],
+                               x_data_test, bounds, fixed_vals,
+                               XS_all,snrs_test)
+    except Exception as e:
+
+        if e == 'KeyboardInterrupt':
+            exit()
+
+        print('There was an exception. Returning large loss.')
+        print()
+        print(e)
+        CVAE_loss = 1e5
+
+        # Add 1 to hyperparam iteration counter
+        cur_hyperparam_iter += 1
+
+        return CVAE_loss
+
+    end_time = time.time()
+    print('Run time : {} h'.format((end_time-start_time)/3600))
+
+    # Print the loss.
+    print()
+    print("Total loss: {0:.2}".format(CVAE_loss))
+    print()
+
+    # update variable outside of this function using global keyword
+    global best_loss
+
+    # Save model 
+#    save_path = CVAE_saver.save(CVAE_session,"inverse_model_dir_%s/inverse_model.ckpt" % params['run_label'])
+
+    # save hyperparameters
+    converged_hyperpar_dict = dict(params = params,
+                                   loss = CVAE_loss,
+                                   runtime = (end_time-start_time)/3600,
+                                   run_ID = cur_hyperparam_iter)
+
+    # Save current run hyperparameters
+    f = open("inverse_model_dir_%s/run_%d/hyperparams.txt" % (params['run_label'],cur_hyperparam_iter),"w")
+    f.write( str(converged_hyperpar_dict) )
+    f.close()
+
+    """
+    # Save loss plot data
+    try:
+        np.savetxt('inverse_model_dir_%s/run_%d/loss_data.txt' % (params['run_label'],cur_hyperparam_iter), np.array(plotdata))
+    except FileNotFoundError as err:
+        pass 
+    """
+
+    # save best model to seperate best model directory
+    if CVAE_loss < best_loss:
+
+        # update the best loss
+        best_loss = CVAE_loss
+        
+        """
+        # Save best model
+        best_model_savedir = "inverse_model_dir_%s/best_model/inverse_model.ckpt" % (params['run_label']) 
+        try:
+            shutil.copytree("inverse_model_dir_%s/run_%d/" % (params['run_label'],cur_hyperparam_iter),
+                            "inverse_model_dir_%s/best_model/" % (params['run_label']))
+        except FileExistsError:
+            shutil.rmtree("inverse_model_dir_%s/best_model/" % (params['run_label']))
+            shutil.copytree("inverse_model_dir_%s/run_%d/" % (params['run_label'],cur_hyperparam_iter),
+                            "inverse_model_dir_%s/best_model/" % (params['run_label']))
+        if nan_flag == False:
+            save_path = CVAE_saver.save(CVAE_session,best_model_savedir)
+        """
+
+        # Print best loss.
+        print()
+        print("New best loss: {0:.2}".format(best_loss))
+        print()
+
+    # Add 1 to hyperparam iteration counter
+    cur_hyperparam_iter += 1
+
+    return CVAE_loss
 
 @contextmanager
 def suppress_stdout():
@@ -285,6 +370,11 @@ def load_data(params,bounds,fixed_vals,input_dir,inf_pars,test_data=False):
             data['y_data_noisy'].append(np.expand_dims(data_temp['y_data_noisy'], axis=0))
             data['rand_pars'] = data_temp['rand_pars']
             print('...... Loaded file ' + dataLocations[0] + '/' + filename)
+
+            # Stop loading test sets if have req number
+            if test_data and len(data['y_data_noisy']) == params['r']:
+                print('... Reached requested number test sets')
+                break    
         except OSError:
             print('Could not load requested file')
             continue
@@ -674,7 +764,8 @@ def train(params=params,bounds=bounds,fixed_vals=fixed_vals,resume_training=Fals
         If True, continue training a pre-trained model.
     """
     
-    global x_data_train, y_data_train, x_data_test, y_data_test, y_data_test_noisefree, XS_all
+    global x_data_train, y_data_train, x_data_test, y_data_test, x_data_val, y_data_val, y_data_test_noisefree, XS_all
+    global snrs_test
 
     # Check for requried parameters files
     if params == None or bounds == None or fixed_vals == None:
@@ -695,18 +786,30 @@ def train(params=params,bounds=bounds,fixed_vals=fixed_vals,resume_training=Fals
 
     print('... converted RA bounds to hour angle')
 
+    """
+    gpus = tf.config.list_physical_devices('GPU')
+    if gpus:
+      try:
+        tf.config.experimental.set_visible_devices(gpus[4], 'GPU')
+        # Currently, memory growth needs to be the same across GPUs
+        for gpu in gpus:
+          tf.config.experimental.set_memory_growth(gpu, True)
+        logical_gpus = tf.config.experimental.list_logical_devices('GPU')
+        print(len(gpus), "Physical GPUs,", len(logical_gpus), "Logical GPUs")
+      except RuntimeError as e:
+        # Memory growth must be set before GPUs have been initialized
+        print(e)
+    """
     # define which gpu to use during training
-    gpu_num = str(params['gpu_num'])                                            # first GPU used by default
-    os.environ["CUDA_VISIBLE_DEVICES"]=gpu_num
-    print('... running on GPU {}'.format(gpu_num))
+#    gpu_num = str(params['gpu_num'])                                            # first GPU used by default
+#    os.environ["CUDA_VISIBLE_DEVICES"]=gpu_num
+#    print('... running on GPU {}'.format(gpu_num))
 
     # Let GPU consumption grow as needed
-    config = tf.compat.v1.ConfigProto()
-    config.gpu_options.allow_growth = True
-    #config.inter_op_parallelism_threads = 1   # use only 1 thread
-    #config.intra_op_parallelism_threads = 1   # use only 1 thread
-    session = tf.compat.v1.Session(config=config)
-    print('... letting GPU consumption grow as needed')
+#    config = tf.compat.v1.ConfigProto()
+#    config.gpu_options.allow_growth = True
+#    session = tf.compat.v1.Session(config=config)
+#    print('... letting GPU consumption grow as needed')
 
     # If resuming training, set KL ramp off
     if resume_training or params['resume_training']:
@@ -825,14 +928,50 @@ def train(params=params,bounds=bounds,fixed_vals=fixed_vals,resume_training=Fals
                 y_data_val_copy[i,:,j] = y_data_val[i,idx_range]
         y_data_val = y_data_val_copy
         print('... converted the data into channels-last format')
-    
-    # finally train the model
-    CVAE_model.train(params, x_data_train, y_data_train,
-                                 x_data_val, y_data_val,
-                                 x_data_test, y_data_test, y_data_test_noisefree,
-                                 "inverse_model_dir_%s/inverse_model.ckpt" % params['run_label'],
-                                 x_data_test, bounds, fixed_vals,
-                                 XS_all,snrs_test)
+
+    if params['vitamin_c']:
+        print('... Using new vitamin_c code')
+        # run hyperparameter optimization
+        if params['hyperparam_optim'] == True:
+
+            # list of initial default hyperparameters to use for GP hyperparameter optimization
+            default_hyperparams = [8, 3]
+
+            # Define hyperparam iteration counter
+            global cur_hyperparam_iter
+            cur_hyperparam_iter = 0
+
+            # Run optimization
+            search_result = gp_minimize(func=hyperparam_fitness,
+                                dimensions=dimensions,
+                                acq_func='EI', # Negative Expected Improvement.
+                                n_calls=params['hyperparam_n_call'],
+                                x0=default_hyperparams)
+
+            dump(search_result, 'search_result_store')
+
+            # plot best loss as a function of optimization step
+            plt.close('all')
+            plot_convergence(search_result)
+            plt.savefig('%s/latest_%s/hyperpar_convergence.png' % (params['plot_dir'],params['run_label']))
+            print('... Saved hyperparameter convergence loss to -> %s/latest_%s/hyperpar_convergence.png' % (params['plot_dir'],params['run_label']))
+            print('... Did a hyperparameter search') 
+        else:
+            vitamin_c.run_vitc(params, x_data_train, y_data_train,
+                               x_data_val, y_data_val,
+                               x_data_test, y_data_test, y_data_test_noisefree,
+                               "inverse_model_dir_%s/inverse_model.ckpt" % params['run_label'],
+                               x_data_test, bounds, fixed_vals,
+                               XS_all,snrs_test)
+
+    else:    
+        # finally train the model
+        CVAE_model.train(params, x_data_train, y_data_train,
+                                     x_data_val, y_data_val,
+                                     x_data_test, y_data_test, y_data_test_noisefree,
+                                     "inverse_model_dir_%s/inverse_model.ckpt" % params['run_label'],
+                                     x_data_test, bounds, fixed_vals,
+                                     XS_all,snrs_test)
     print('... completed training') 
     return
 
@@ -996,10 +1135,10 @@ def test(params=params,bounds=bounds,fixed_vals=fixed_vals,use_gpu=False):
                  if samp_idx == 'emcee':
                      data_temp[p] = emcee_pruned_samples[:,q_idx]
                  else:
-                     data_temp[p] = np.float64(h5py.File(filename, 'r')[p][:])
+                     data_temp[p] = np.float32(h5py.File(filename, 'r')[p][:])
 
                  if p == 'geocent_time_post' or p == 'geocent_time_post_with_cut':
-                     data_temp[p] = np.subtract(np.float64(data_temp[p]),np.float64(params['ref_geocent_time'])) 
+                     data_temp[p] = np.subtract(np.float32(data_temp[p]),np.float32(params['ref_geocent_time'])) 
 
                  Nsamp = data_temp[p].shape[0]
                  n = n + 1
